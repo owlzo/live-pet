@@ -15,7 +15,12 @@ import { join, resolve } from 'node:path';
 import { downloadArtifact } from '@electron/get';
 import extract from '@electron-internal/extract-zip';
 
-const HOME = process.env.DSH_HOME || join(process.env.USERPROFILE || process.env.HOME || '', '.dsh');
+// 落盘目录必须与 scripts/start-app.mjs 的查找顺序一致（LIVE_PET_HOME → DSH_HOME → ~/.live-pet），
+// 否则 ensure 装到 ~/.dsh、start-app 去 ~/.live-pet 找，装完照样报「找不到 Electron」。
+const HOME =
+  process.env.LIVE_PET_HOME ||
+  process.env.DSH_HOME ||
+  join(process.env.USERPROFILE || process.env.HOME || '', '.live-pet');
 const VERSION = process.env.DSH_PET_ELECTRON_VERSION || '43.3.0';
 const MIRROR = process.env.DSH_PET_ELECTRON_MIRROR || 'https://npmmirror.com/mirrors/electron/';
 const TARGET_DIR = resolve(HOME, 'electron');

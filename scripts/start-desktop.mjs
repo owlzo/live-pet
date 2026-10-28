@@ -33,7 +33,10 @@ const candidates = [
   process.env.DSH_PET_ELECTRON_PATH,
   process.env.ELECTRON_PATH,
   join(
-    process.env.DSH_HOME || join(process.env.USERPROFILE || process.env.HOME || '', '.dsh'),
+    // 与 ensure-electron / start-app 同一套落盘目录（LIVE_PET_HOME → DSH_HOME → ~/.live-pet）
+    process.env.LIVE_PET_HOME ||
+      process.env.DSH_HOME ||
+      join(process.env.USERPROFILE || process.env.HOME || '', '.live-pet'),
     'electron',
     electronRel,
   ),

@@ -254,7 +254,7 @@ function status(port: number): Record<string, unknown> {
 }
 
 /** 落地页：直接跳控制台；状态与端口在 /health（JSON），不必再维护第二份 HTML。 */
-function landingPage(_port: number): string {
+function landingPage(): string {
   return `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta http-equiv="refresh" content="0;url=/console/">

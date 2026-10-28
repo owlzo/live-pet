@@ -12,34 +12,50 @@ Windows 单进程 Electron 应用，带一个全宽 Web 控制台。
 - **动画系统**：106 段 VP9-alpha 透明动画，待机/转向/拖拽/点击/移动/事件六类动画池，权重可调
 - **物理手感**：重力、弹性、地面摩擦、抛掷力度、顶部反弹、宠物互撞
 - **直播互动**：抖音弹幕 → 气泡/动作；**单机模式**（只读弹幕，不走模型）与 **AI 模式**（弹幕交给大模型）一键切换
+- **宠物语音**：弹幕、碎碎念、对话回复都会念出来，9 个中文音色可选，语速音量可调（Edge 朗读接口，免费、需联网）
 - **重复抑制**：同一用户 + 同一内容在时间窗内限次放行，礼物同规则、不合并
+- **排队与抽样**：弹幕先进队列，按「互动最大数 × 保留比例」随机抽样（默认 50 条留一半），留下的**按到达顺序一句一句播**，不再互相顶掉；礼物必谢、永不抽样
+- **互动记录**：控制台实时列出收到的每一条互动与礼物，标注已播 / 排队中 / 被抽样丢弃
+- **一键部署**：`npm run setup` 装 Electron + 弹幕采集器 + 构建；`npm run start:app` 启动时自动拉起采集器，不用另开终端
 - **Web 控制台**：概览 / 宠物 / 外观与物理 / AI 对话 / 直播接入，左侧导航 + 全宽卡片网格
 - **大模型**：OpenAI 兼容（DeepSeek 默认）与 Anthropic；余额查询复用同一把 DeepSeek 密钥
 
 ## 环境要求
 
-| 项 | 版本 |
-|---|---|
-| Node.js | ≥ 22.12 |
-| Electron | 自带或用本机已有的（见下） |
-| 平台 | Windows 10/11（macOS / Linux 未验证） |
+| 项       | 版本                                  |
+| -------- | ------------------------------------- |
+| Node.js  | ≥ 22.12                               |
+| Electron | 自带或用本机已有的（见下）            |
+| 平台     | Windows 10/11（macOS / Linux 未验证） |
 
 ## 快速开始
 
 ```bash
 npm install
-npm run build          # tsdown → lib；shared-core → runtime；类型声明 → lib/types
-npm run start:app      # 启动桌面宠物
+npm run setup          # 一次性准备：Electron 运行时 + 弹幕采集器 + 构建产物
+npm run start:app      # 启动桌面宠物（采集器会被自动拉起）
 ```
 
-首次运行需要一份 Electron。已有就直接指过去：
+`npm run setup` 是三条命令的合集，也可以分开跑：
+
+| 命令                      | 作用                                                  | 产物位置                       |
+| ------------------------- | ----------------------------------------------------- | ------------------------------ |
+| `npm run ensure:electron` | 下载 Electron 运行时（约 104 MB）                     | `~/.live-pet/electron`         |
+| `npm run setup:collector` | 下载弹幕采集器 douyinLive（校验 SHA256 后解压）      | `~/.live-pet/tools/douyinLive` |
+| `npm run build`           | tsdown → lib；shared-core → runtime；类型 → lib/types | `lib/`                         |
+
+两个都幂等：已经装过就直接跳过，不会重复下载。
+
+采集器装在标准目录后**不需要再填路径**：宿主启动时按「配置里的 `collectorPath` → 环境变量
+`LIVE_PET_COLLECTOR_PATH` → 标准目录」三档自动发现，发现到就拉起，桌宠退出时一并回收。
+装在别处才需要在控制台「弹幕采集器」卡片里填绝对路径。
+
+已有 Electron 也可以直接指过去，跳过 `ensure:electron`：
 
 ```powershell
-$env:LIVE_PET_ELECTRON_PATH="C:\Users\<你>\.dsh\electron\electron.exe"
+$env:LIVE_PET_ELECTRON_PATH="C:\Users\<你>\.live-pet\electron\electron.exe"
 npm run start:app
 ```
-
-没有则 `npm run ensure:electron` 下载一份（约 104 MB，落在 `~/.live-pet/electron`）。
 
 启动日志第二行是控制台地址：
 
@@ -49,14 +65,15 @@ npm run start:app
 ```
 
 > 端口默认随机；转发器需要固定地址时设 `LIVE_PET_PORT=18080`。
+> 采集器默认监听 `127.0.0.1:1088`，端口由直播源地址里的端口决定（默认 `ws://127.0.0.1:1088/ws/{room}`）。
 
 ## 目录结构
 
 ```
 src/
   app/          单进程 Electron 应用：本机 HTTP 服务 + 宿主装配 + 桌面窗口
-  host/         宿主半侧：配置、路由、余额、碎碎念、对话、桌面 Helper 生命周期
-  live/         直播接入：事件模型、去重、动作映射、WS 源、HTTP 注入
+  host/         宿主半侧：配置、路由、余额、碎碎念、对话、语音、桌面 Helper 生命周期
+  live/         直播接入：事件模型、去重、互动队列与抽样、动作映射、WS 源、采集器管理、HTTP 注入
   shared/       纯逻辑（物理 / 菜单 / 拾取权重），宿主与渲染端共用
   standalone/   本机 AI 设置（OpenAI 兼容 / Anthropic）与请求边界
   console/      Web 控制台（HTML / CSS / 原生 JS，无构建链）
@@ -68,7 +85,7 @@ assets/
   fonts/        气泡字体
   sound/        点击音效
   config.jsonc  默认配置
-scripts/        构建、打包、控制台探针
+scripts/        构建、打包、控制台探针、采集器安装、产物清理
 ```
 
 ## 配置
@@ -88,19 +105,38 @@ scripts/        构建、打包、控制台探针
 
 `http://127.0.0.1:<端口>/console/`，或右键桌宠 →「打开控制台」（带令牌）。
 
-| 页签 | 内容 |
-|---|---|
-| 概览 | 宠物数、表情包、模型、直播状态、托盘；快速操作（说话 / 播动画 / 刷新余额 / 重载配置） |
-| 宠物 | 多开增删、显示名、大小、位置、角落、边距、四个开关、独立人设 |
-| 外观与物理 | 重力 / 弹性 / 摩擦 / 抛掷力度 / 顶部反弹 / 宠物互撞；字体与字号；全局开关 |
-| AI 对话 | 协议、地址、模型、密钥（可清除）、启用、记忆轮数、配图上限、输出上限、碎碎念间隔、测试连接 |
-| 直播接入 | 模式（单机 / AI）、房间号、转发地址、去重参数、自动连接、运行状态、模拟事件 |
+| 页签       | 内容                                                                                                             |
+| ---------- | ---------------------------------------------------------------------------------------------------------------- |
+| 概览       | 宠物数、表情包、模型、直播状态、托盘；快速操作（说话 / 播动画 / 刷新余额 / 重载配置）                            |
+| 宠物       | 多开增删、显示名、大小、位置、角落、边距、四个开关、独立人设                                                     |
+| 外观与物理 | 重力 / 弹性 / 摩擦 / 抛掷力度 / 顶部反弹 / 宠物互撞；字体与字号；全局开关；**语音**（音色 / 语速 / 音量 / 试听） |
+| AI 对话    | 协议、地址、模型、密钥（可清除）、启用、记忆轮数、配图上限、输出上限、碎碎念间隔、测试连接                       |
+| 直播接入   | 模式（单机 / AI）、房间号、转发地址、去重参数、自动连接、运行状态、模拟事件                                      |
 
 **权限**：同源页面（`sec-fetch-site: same-origin`）读写放行；跨站一律 403；其它本机进程需带令牌。
 
 ## 直播接入
 
 ### 路线 A · 直连采集器（最省事）
+
+**采集器由桌宠自动拉起**，正常情况下你只需要：
+
+```bash
+npm run setup:collector   # 一次性：下载 douyinLive 到标准目录（校验 SHA256，幂等，装过就跳过）
+npm run start:app         # 之后每次只需这一条
+```
+
+启动时宿主会先探测 `127.0.0.1:1088`：没人在听就自动拉起采集器，退出时只回收**自己拉起的**那个进程
+（你手工开的采集器不会被杀）。采集器输出落到 `~/.live-pet/live-pet/collector.log`。
+
+**装到标准目录就不需要再填路径**：宿主按「配置里的 `collectorPath` → 环境变量
+`LIVE_PET_COLLECTOR_PATH` → 标准目录 `<数据目录>/tools/douyinLive/`」三档自动发现。
+装在别处才需要在控制台「直播接入 → 弹幕采集器」里填绝对路径（留空 = 不自动拉起）。
+
+不装 Go、手工下载也可以：从 [Releases](https://github.com/jwwsjlm/douyinLive/releases) 下
+`…-windows-amd64.zip` 解压，把 exe 路径填进控制台「直播接入 → 弹幕采集器」即可（留空 = 不自动拉起）。
+
+自己编译：
 
 ```bash
 git clone --depth 1 https://github.com/jwwsjlm/douyinLive.git
@@ -109,6 +145,36 @@ cd douyinLive && go build -o douyinLive ./cmd/main && cd ..
 ```
 
 控制台源地址填 `ws://127.0.0.1:1088/ws/{room}`，房间号填抖音直播间号。
+
+**房间号**是直播间网页地址里那串数字（`https://live.douyin.com/516466932480` → `516466932480`），
+不是抖音号、也不是主页链接里的 `MS4wLjABAAAA…`。采集器抓的是抖音**云端**的弹幕通道，
+与本机是否开播、有没有装直播伴侣无关；但那个直播间得**正在直播**才有消息（没开播时连接是通的、只是没数据）。
+
+排查一句：`curl http://127.0.0.1:1088/api/v1/rooms/<房间号>/status`，返回 `"status":"online"` 就通了。
+
+### 排队与抽样（人多时不刷屏、不丢顺序）
+
+弹幕不是「来一条播一条」：先入队，再按批抽样，留下的**按到达顺序**一条一条播，
+每播完一条按字数估算语音时长，够了才播下一条。
+
+| 参数         | 默认    | 含义                                               |
+| ------------ | ------- | -------------------------------------------------- |
+| 互动最大数   | 50      | 待播队列上限，同时也是抽样批量：攒够这么多就抽一次 |
+| 保留比例     | 50%     | 一批里随机留多少。50 = 50 条里留一半               |
+| 批次最长等待 | 3000 ms | 小房间攒不满也按这个间隔抽一次，不至于一直不播     |
+| 两句最小间隔 | 2200 ms | 实际间隔还会按字数估的语音时长拉长                 |
+
+三条硬规则：
+
+1. **礼物必谢**——礼物不进抽样批，直接排队，永远不会被抽样或队列上限丢掉；
+2. **保持先后**——抽样只决定谁留下，留下的不重排、不插队；
+3. **不无限堆积**——队列满了丢最旧的，被丢的会在「互动记录」里标成「队列满」。
+
+> 人特别多的房间（每秒好几条）光靠 50% 抽不满播报速度，可以把保留比例降到 20~30%，
+> 或把互动最大数调小让抽样更碎——控制台「运行状态」里的「抽样丢 / 队列满」两个数就是调参依据。
+
+控制台「互动记录」实时列出收到的**每一条**互动（含被丢弃的），一行显示时间 / 用户 / 内容 / 状态，
+礼物高亮、没播出去的置灰。
 
 ### 路线 B · 经 cyber-xiaoya-danmaku 中转（多平台）
 
@@ -134,10 +200,10 @@ B站 / YouTube / 视频号 ─┴─▶ cyber-xiaoya-danmaku(reader.py) ──PO
 
 ### 两种模式
 
-| 模式 | 弹幕 | 礼物 | 进场 / 关注 / 点赞 |
-|---|---|---|---|
-| `readonly` 单机（默认） | 气泡显示「用户：内容」，**不走大模型** | 固定话术感谢 + 点击动画 | 只记日志 |
-| `ai` | 交给大模型生成回复 | 固定话术感谢 + 点击动画 | 欢迎语 / 感谢关注 / 动画 |
+| 模式                    | 弹幕                                   | 礼物                    | 进场 / 关注 / 点赞       |
+| ----------------------- | -------------------------------------- | ----------------------- | ------------------------ |
+| `readonly` 单机（默认） | 气泡显示「用户：内容」，**不走大模型** | 固定话术感谢 + 点击动画 | 只记日志                 |
+| `ai`                    | 交给大模型生成回复                     | 固定话术感谢 + 点击动画 | 欢迎语 / 感谢关注 / 动画 |
 
 **去重口径**：不做同类合并，只抑制重复——同一用户 + 同一内容在窗口内（默认 30 秒）最多放行 3 次，
 超出丢弃并计入「抑制」；礼物按「用户 + 礼物名」同规则。
@@ -146,21 +212,44 @@ B站 / YouTube / 视频号 ─┴─▶ cyber-xiaoya-danmaku(reader.py) ──PO
 
 前缀 `/live-pet`，只监听 `127.0.0.1`：
 
-| 接口 | 说明 |
-|---|---|
-| `GET /config` | 读合并后的成品配置 |
-| `PUT /config` | 保存用户层配置（白名单重建） |
-| `GET /state` | 轮询快照（长轮询 `?since=&timeout=`） |
-| `POST /broadcast?pet=<id>&surface=any` | 让它说一句话 `{text}` |
-| `POST /anim?pet=<id>&surface=any` | 播指定动画 `{name}` |
-| `POST /throw?pet=<id>` | 抛掷 `{angle,power}` |
-| `POST /balance` | 刷新余额（DeepSeek） |
-| `POST /reload` | 按当前配置重建桌面窗口 |
-| `GET /live/status` | 直播连接状态与 收到/放行/抑制 计数 |
-| `GET\|POST /live/config` | 读写直播配置 |
-| `POST /live/connect` / `POST /live/disconnect` | 连接 / 断开 |
-| `POST /live/test` | 注入测试事件 `{kind,user,text?,giftName?}` |
-| `POST /live/ingest` | 外部转发器入口（本机无 Origin 请求免令牌） |
+| 接口                                           | 说明                                                 |
+| ---------------------------------------------- | ---------------------------------------------------- |
+| `GET /config`                                  | 读合并后的成品配置                                   |
+| `PUT /config`                                  | 保存用户层配置（白名单重建）                         |
+| `GET /state`                                   | 轮询快照（长轮询 `?since=&timeout=`）                |
+| `POST /broadcast?pet=<id>&surface=any`         | 让它说一句话 `{text}`                                |
+| `POST /anim?pet=<id>&surface=any`              | 播指定动画 `{name}`                                  |
+| `POST /throw?pet=<id>`                         | 抛掷 `{angle,power}`                                 |
+| `POST /balance`                                | 刷新余额（DeepSeek）                                 |
+| `POST /reload`                                 | 按当前配置重建桌面窗口                               |
+| `GET /live/status`                             | 直播连接状态与 收到/放行/抑制 计数                   |
+| `GET\|POST /live/config`                       | 读写直播配置                                         |
+| `POST /live/connect` / `POST /live/disconnect` | 连接 / 断开                                          |
+| `POST /live/test`                              | 注入测试事件 `{kind,user,text?,giftName?}`           |
+| `POST /live/ingest`                            | 外部转发器入口（本机无 Origin 请求免令牌）           |
+| `GET /live/events?limit=`                      | 互动记录（含被抽样丢弃的），最新在前                 |
+| `GET /live/collector/status`                   | 采集器状态（是否在跑 / 路径 / pid）                  |
+| `POST /live/collector/start`                   | 确保采集器在跑（没配路径或端口已在听时直接返回现状） |
+| `GET /voice/config`                            | 读语音配置（开关 / 音色 / 语速 / 音量 / 单句上限）   |
+| `POST /voice/config`                           | 保存语音配置                                         |
+| `POST /voice/test`                             | 试听 `{text}`，返回合成好的文件名                    |
+| `GET /voice/<name>.mp3`                        | 取回合成好的音频（桌面端播放用）                     |
+
+## 语音
+
+宠物说话时会同时出声：弹幕（单机模式念「谁说了什么」，AI 模式念模型回复）、碎碎念、`/broadcast` 广播都会念。
+引擎是 [msedge-tts](https://github.com/Migushthe2nd/MsEdgeTTS)（MIT，Edge「大声朗读」接口的 Node 移植），
+不装外部运行时、不要 API Key，**需要联网**。没网时只是没有声音，气泡与动画照常。
+
+- **音色**：晓晓 / 晓伊 / 云希 / 云健 / 云扬 / 晓北（东北）/ 晓妮（陕西）/ 曉臻（台湾）/ 曉曼（粤语）
+- **语速**：-50 ~ +100（百分比，0 为原速）；**音量**：0 ~ 100（只影响桌宠播放）
+- **缓存**：合成结果按「音色 + 语速 + 文本」哈希存在 `~/.live-pet/live-pet/voice-cache/`，
+  同一句话不重复请求；超过 300 条自动删最旧的
+- **配置**：`~/.live-pet/live-pet/voice-config.json`，控制台「外观与物理 → 宠物语音」改
+- **失败处理**：网络失败后 30 秒内不再重试（避免每句话卡一次超时）；单句念不出来（纯符号/乱码）只跳过这一句
+
+实现分三段：宿主 `src/host/voice/` 合成并写 `pets.<id>.voice` 状态叶子 → `GET /voice/<name>.mp3` 供取 →
+桌面端 `runtime/electron-helper/events.js` 取成 blob 播放。语音与气泡是两个叶子，所以气泡不用等合成。
 
 ## 余额
 
@@ -174,8 +263,10 @@ B站 / YouTube / 视频号 ─┴─▶ cyber-xiaoya-danmaku(reader.py) ──PO
 
 ```bash
 npm run typecheck        # tsc --noEmit
-npm test                 # node:test（1174 项）
+npm test                 # node:test（1190 项）
+npm run lint             # eslint（含 runtime 的独立配置）
 npm run probe:console    # 控制台冒烟探针（需 LIVE_PET_ELECTRON_PATH）
+npm run clean:types      # 清 lib/types（构建偶发卡在 gen-types 时先跑它）
 npm run dist             # electron-builder 打包
 ```
 
@@ -184,13 +275,13 @@ npm run dist             # electron-builder 打包
 
 ## 常见问题
 
-| 现象 | 原因与处理 |
-|---|---|
-| 控制台空白 | 前端脚本报错或浏览器缓存；`Ctrl+F5`，再跑 `npm run probe:console` |
-| 找不到 Electron | 设 `LIVE_PET_ELECTRON_PATH`，或 `npm run ensure:electron` |
-| 端口被占用 | 固定端口失败会回落随机端口，日志会写一条；转发器需同步改地址 |
-| 余额不可用 | 只支持 DeepSeek 官方接口；检查 `baseUrl` 是否含 `deepseek` 且密钥已保存 |
-| 弹幕收不到 | 确认采集器在跑、房间号正确、控制台状态为「已连接」；看 `~/.live-pet/live-pet/logs.txt` |
+| 现象            | 原因与处理                                                                             |
+| --------------- | -------------------------------------------------------------------------------------- |
+| 控制台空白      | 前端脚本报错或浏览器缓存；`Ctrl+F5`，再跑 `npm run probe:console`                      |
+| 找不到 Electron | 设 `LIVE_PET_ELECTRON_PATH`，或 `npm run ensure:electron`                              |
+| 端口被占用      | 固定端口失败会回落随机端口，日志会写一条；转发器需同步改地址                           |
+| 余额不可用      | 只支持 DeepSeek 官方接口；检查 `baseUrl` 是否含 `deepseek` 且密钥已保存                |
+| 弹幕收不到      | 确认采集器在跑、房间号正确、控制台状态为「已连接」；看 `~/.live-pet/live-pet/logs.txt` |
 
 ## 许可与免责
 

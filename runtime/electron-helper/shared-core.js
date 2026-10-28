@@ -2543,7 +2543,8 @@ const PET_LEAF_NAMES = [
 	"anim",
 	"position",
 	"throw",
-	"lock"
+	"lock",
+	"voice"
 ];
 /** 把字符串收窄成分段叶子名。 */
 function isSectionLeafName(name) {
@@ -2593,6 +2594,16 @@ function readSay(leaf$1) {
 		url: typeof d.url === "string" ? d.url : void 0,
 		duration: typeof d.duration === "number" && Number.isFinite(d.duration) && d.duration >= 0 ? d.duration : void 0,
 		anim: typeof d.anim === "boolean" ? d.anim : void 0
+	};
+}
+function readVoice(leaf$1) {
+	if (!leaf$1.data || typeof leaf$1.data !== "object") return null;
+	const d = leaf$1.data;
+	if (typeof d.name !== "string" || d.name === "") return null;
+	const volume = typeof d.volume === "number" && Number.isFinite(d.volume) ? Math.max(0, Math.min(1, d.volume)) : 1;
+	return {
+		name: d.name,
+		volume
 	};
 }
 function readWorkStatus(leaf$1) {
@@ -2844,6 +2855,7 @@ exports.readMenuItems = readMenuItems
 exports.readPosition = readPosition
 exports.readSay = readSay
 exports.readThrow = readThrow
+exports.readVoice = readVoice
 exports.readWorkStatus = readWorkStatus
 exports.rebaseCenter = rebaseCenter
 exports.rectAtPoint = rectAtPoint

@@ -293,6 +293,42 @@ function applySayLeaf(petId, leaf) {
   }
 }
 
+/**
+ * 语音叶子 → 播放宿主合成好的那段音频。
+ * 与 say 分两个叶子：合成是异步的，气泡先到、声音后到，不能互相拖住。
+ * 同一只宠物后来的语音会打断前一段（弹幕刷屏时不排队念旧句子）。
+ *
+ * 不用 `new Audio(url)` 直连：页面是 file:// 源，直连拿不到宿主给渲染端的那份凭证，
+ * 语音路由会回 403。先按普通 fetch 取成 blob 再播，与 /state、/config 走同一条通道。
+ */
+let voiceAudio = null;
+let voiceBlobUrl = '';
+function applyVoiceLeaf(petId, leaf) {
+  const cue = S.readVoice(leaf);
+  if (!cue) return;
+  if (!sprites.some((s) => s.pet.id === petId)) return;
+  fetch(BASE + '/voice/' + encodeURIComponent(cue.name), { cache: 'no-store' })
+    .then((res) => {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.blob();
+    })
+    .then((blob) => {
+      if (voiceAudio !== null) voiceAudio.pause();
+      if (voiceBlobUrl !== '') URL.revokeObjectURL(voiceBlobUrl);
+      voiceBlobUrl = URL.createObjectURL(blob);
+      voiceAudio = new Audio(voiceBlobUrl);
+      voiceAudio.volume = cue.volume;
+      const p = voiceAudio.play();
+      if (p && typeof p.then === 'function') {
+        p.then(() => console.log('[live-pet] 语音播放 ' + cue.name.slice(0, 8) + ' 音量 ' + cue.volume)).catch(() => {});
+      }
+    })
+    .catch((e) => {
+      // 取不到音频不影响气泡与动画，只留一条日志便于排查
+      console.error('[live-pet] 语音播放失败：' + (e && e.message ? e.message : String(e)));
+    });
+}
+
 /** 工作状态叶子 → 各宠物切档位动画 + 气泡（含回到空闲：state=null 用于收起常驻气泡） */
 function applyWorkStatusLeaf(leaf) {
   const snap = S.toWorkStatus(leaf.data);
@@ -379,6 +415,9 @@ async function pollStateOnce() {
       else if (change.path.startsWith('pets.') && change.path.endsWith('.say')) {
         // 宠物 id 允许含点号：按前缀/后缀切片，绝不 split('.')
         applySayLeaf(change.path.slice('pets.'.length, -'.say'.length), change.leaf);
+      } else if (change.path.startsWith('pets.') && change.path.endsWith('.voice')) {
+        // 语音：宿主合成好音频后单独写这个叶子（与 say 解耦，气泡不必等合成）
+        applyVoiceLeaf(change.path.slice('pets.'.length, -'.voice'.length), change.leaf);
       } else if (change.path.startsWith('pets.') && change.path.endsWith('.anim')) {
         // 点播动画：同样按前缀/后缀切片（counter 每次写入都递增，连点两次也会分发两次）
         applyAnimLeaf(change.path.slice('pets.'.length, -'.anim'.length), change.leaf);

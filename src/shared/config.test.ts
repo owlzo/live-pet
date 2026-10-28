@@ -14,7 +14,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -34,9 +34,6 @@ const ENTRY_FIELDS: Array<keyof Pet> = [
   'whisperModel',
   'chatModel',
 ];
-
-/** 包内文件源码（守卫用；相对 src/shared/ 解析） */
-const readSource = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 
 describe('flattenConfigPets —— 成品 → 渲染列表的唯一填充点', () => {
   test('真实内置默认配置：每只实例的条目级字段齐全（含 physics.throwPower）', () => {

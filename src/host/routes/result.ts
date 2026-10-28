@@ -32,6 +32,7 @@ export type ResultReason =
   | 'provider-missing'
   | 'too-many-items'
   | 'too-many-owners'
+  | 'tts-failed'
   | 'unknown-animation'
   | 'unknown-entry'
   | 'unknown-image'

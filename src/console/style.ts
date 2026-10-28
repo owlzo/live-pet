@@ -84,16 +84,22 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .mb{margin-bottom:12px}
 .flush{margin:0}
 .toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}
-.mt{margin-top:16px}
-.mt-6{margin-top:6px}
-.mb{margin-bottom:12px}
-.flush{margin:0}
-.toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}
 .empty{padding:28px;border:1px dashed var(--line);border-radius:var(--radius);text-align:center;color:var(--muted)}
 .toast{position:fixed;right:24px;bottom:24px;padding:10px 16px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);box-shadow:0 8px 24px rgba(0,0,0,.35);opacity:0;transform:translateY(8px);transition:.18s;pointer-events:none;z-index:60}
 .toast.show{opacity:1;transform:none}
 .toast.err{border-color:rgba(239,91,91,.5);color:#ffd7d7}
 .rowline{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
 .rowline:last-child{border-bottom:0}
-@media (max-width:900px){.app{grid-template-columns:1fr}.side{flex-direction:row;align-items:center;overflow:auto;border-right:0;border-bottom:1px solid var(--line)}.brand{padding:0 12px 0 4px}.nav{flex-direction:row}.side-foot{display:none}.two,.three{grid-template-columns:1fr}}
+/* 互动记录：固定高度滚动列表，一行一条，礼物高亮、被抽样刷掉的置灰 */
+.evlist{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
+.ev{display:grid;grid-template-columns:52px 96px minmax(0,1fr) 56px;gap:8px;align-items:baseline;padding:7px 10px;border-bottom:1px solid var(--line);font-size:12px}
+.ev:last-child{border-bottom:0}
+.ev .t{color:var(--muted);font-variant-numeric:tabular-nums}
+.ev .who{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev .txt{color:var(--muted);word-break:break-all}
+.ev.gift{background:rgba(240,180,41,.08)}
+.ev.gift .txt{color:var(--warn)}
+.ev.dropped{opacity:.55}
+.badge.gift{color:var(--warn);border-color:rgba(240,180,41,.35)}
+@media (max-width:900px){.app{grid-template-columns:1fr}.side{flex-direction:row;align-items:center;overflow:auto;border-right:0;border-bottom:1px solid var(--line)}.brand{padding:0 12px 0 4px}.nav{flex-direction:row}.side-foot{display:none}.two,.three{grid-template-columns:1fr}.ev{grid-template-columns:44px 72px minmax(0,1fr) 48px}}
 `;

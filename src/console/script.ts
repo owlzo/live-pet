@@ -25,6 +25,19 @@ export const consoleScript = `
     { id: 'live', label: '直播接入', title: '直播接入', sub: '抖音弹幕转发、去重与事件映射' }
   ];
 
+  /** 可选的语音音色（与宿主 VOICES 同一份，写死省掉一次联网拉列表）。 */
+  var VOICE_OPTIONS = [
+    { value: 'zh-CN-XiaoxiaoNeural', label: '晓晓 · 女声（温柔，默认）' },
+    { value: 'zh-CN-XiaoyiNeural', label: '晓伊 · 女声（活泼）' },
+    { value: 'zh-CN-YunxiNeural', label: '云希 · 男声（少年）' },
+    { value: 'zh-CN-YunjianNeural', label: '云健 · 男声（沉稳）' },
+    { value: 'zh-CN-YunyangNeural', label: '云扬 · 男声（播音）' },
+    { value: 'zh-CN-liaoning-XiaobeiNeural', label: '晓北 · 女声（东北话）' },
+    { value: 'zh-CN-shaanxi-XiaoniNeural', label: '晓妮 · 女声（陕西话）' },
+    { value: 'zh-TW-HsiaoChenNeural', label: '曉臻 · 女声（台湾腔）' },
+    { value: 'zh-HK-HiuMaanNeural', label: '曉曼 · 女声（粤语）' }
+  ];
+
   function $(id) { return document.getElementById(id); }
 
   function el(tag, attrs, kids) {
@@ -361,6 +374,43 @@ export const consoleScript = `
       ])
     ]));
 
+    // 语音：宿主把「要说的那句话」合成成 mp3，桌面端收到就播。音色走 Edge 朗读接口，需要联网。
+    var v = state.voiceCfg || { enabled: true, voice: 'zh-CN-XiaoxiaoNeural', rate: 0, volume: 0.85, maxChars: 120 };
+    var vVoice = selectInput(v.voice, VOICE_OPTIONS, function (nv) { v.voice = nv; });
+    var vRate = numberInput(v.rate, function (nv) { v.rate = nv; }, { min: '-50', max: '100' });
+    var vVol = numberInput(Math.round((v.volume === undefined ? 0.85 : v.volume) * 100), function (nv) { v.volume = nv / 100; }, { min: '0', max: '100' });
+
+    grid.appendChild(card('宠物语音', '弹幕、碎碎念、对话回复都会念出来；音色走 Edge 朗读接口，需联网', [
+      toggle(v.enabled !== false, '启用语音', function (nv) { v.enabled = nv; }),
+      el('div', { class: 'two' }, [
+        field('音色', vVoice),
+        field('语速 %', vRate, '-50 慢 ~ +100 快，0 为原速')
+      ]),
+      field('音量 %', vVol, '只影响桌宠播放的音量，不影响系统音量'),
+      el('div', { class: 'row mt-6' }, [
+        el('button', { class: 'btn primary', type: 'button', on: { click: function () {
+          api(API + '/voice/config', { method: 'POST', body: {
+            enabled: v.enabled !== false, voice: v.voice, rate: v.rate,
+            volume: v.volume, maxChars: v.maxChars
+          } }).then(function (cfg) {
+            state.voiceCfg = cfg;
+            toast('语音设置已保存');
+          }).catch(function (e) { toast(e.message, true); });
+        } } }, ['保存语音设置']),
+        el('button', { class: 'btn', type: 'button', on: { click: function () {
+          api(API + '/voice/test', { method: 'POST', body: { text: '你好呀，我是你的桌面宠物' } })
+            .then(function (r) {
+              var audio = new Audio(API + '/voice/' + r.name);
+              audio.volume = v.volume === undefined ? 0.85 : v.volume;
+              var p = audio.play();
+              if (p && p.catch) p.catch(function () {});
+              toast('已合成，正在播放');
+            })
+            .catch(function (e) { toast(e.message, true); });
+        } } }, ['试听'])
+      ])
+    ]));
+
     $('view').appendChild(grid);
   }
 
@@ -416,7 +466,6 @@ export const consoleScript = `
         return i;
       })(), keyHint),
       toggle(!!a.clearApiKey, '清除已保存的密钥（保存后生效）', function (v) { a.clearApiKey = v; }),
-      toggle(!!a.clearApiKey, '清除已保存的密钥（保存后生效）', function (v) { a.clearApiKey = v; }),
       toggle(a.enabled, '启用 AI 对话与碎碎念', function (v) { a.enabled = v; })
     ]));
 
@@ -457,6 +506,65 @@ export const consoleScript = `
     return field(label, control, hint);
   }
 
+  /** 把毫秒时间戳格式化成 HH:MM:SS（互动记录的时间列）。 */
+  function clockOf(ts) {
+    var d = new Date(ts || Date.now());
+    function pad(n) { return n < 10 ? '0' + n : String(n); }
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+
+  /** 一条互动记录里「内容」列该显示什么：礼物显示礼物名×数量，其余显示正文。 */
+  function eventText(ev) {
+    if (ev.kind === 'gift') return '礼物 ' + (ev.giftName || '礼物') + (ev.giftCount > 1 ? ' ×' + ev.giftCount : '');
+    if (ev.kind === 'enter') return '进场';
+    if (ev.kind === 'follow') return '关注';
+    if (ev.kind === 'like') return '点赞';
+    return ev.text || '';
+  }
+
+  /** 一条互动记录的状态标签（已播 / 排队中 / 待抽样 / 被抽样刷掉 / 队列满被挤掉）。 */
+  function eventStatus(it) {
+    if (it.status === 'played') return '已播';
+    if (it.status === 'queued') return '排队中';
+    if (it.status === 'pending') return '待抽样';
+    if (it.dropReason === 'queue-full') return '队列满';
+    return '抽样丢';
+  }
+
+  var lastEventSig = '';
+
+  /**
+   * 渲染互动记录列表。
+   *
+   * 每 2 秒被 refreshLive 调用一次，但只有「条数或最新一条 id」变了才重画，
+   * 否则每次刷新都会把滚动位置弹回顶部。
+   */
+  function renderEvents() {
+    var box = $('ev-list');
+    if (!box) return;
+    api(API + '/live/events?limit=120').then(function (r) {
+      var items = (r && r.items) || [];
+      var sig = items.length + ':' + (items[0] ? items[0].id : 0);
+      if (sig === lastEventSig) return;
+      lastEventSig = sig;
+      box.innerHTML = '';
+      if (!items.length) {
+        box.appendChild(el('div', { class: 'empty', text: '还没有收到互动。连上直播间后这里会实时出现。' }));
+        return;
+      }
+      items.forEach(function (it) {
+        var ev = it.event || {};
+        var cls = 'ev' + (ev.kind === 'gift' ? ' gift' : '') + (it.status === 'dropped' ? ' dropped' : '');
+        box.appendChild(el('div', { class: cls }, [
+          el('span', { class: 't', text: clockOf(it.receivedAt) }),
+          el('span', { class: 'who', text: ev.user || '匿名' }),
+          el('span', { class: 'txt', text: eventText(ev) }),
+          el('span', { class: 'badge' + (ev.kind === 'gift' ? ' gift' : ''), text: eventStatus(it) })
+        ]));
+      });
+    }).catch(function () {});
+  }
+
   function refreshLive() {
     api(API + '/live/status').then(function (st) {
       state.liveStatus = st;
@@ -465,13 +573,16 @@ export const consoleScript = `
         'live-recv': String(st.received),
         'live-deliv': String(st.delivered),
         'live-supp': String(st.suppressed),
+        'live-queued': String(st.queued || 0),
+        'live-drop-sampled': String(st.droppedSampled || 0),
+        'live-drop-full': String(st.droppedQueueFull || 0),
         'live-room': st.room || '—',
         'live-mode': st.mode === 'ai' ? 'AI 模式' : '单机模式',
         'ov-live': st.connected ? '已连接' : '未连接',
-        'live-mode': st.mode === 'ai' ? 'AI 模式' : '单机模式',
-        'ov-live': st.connected ? '已连接' : '未连接',
         'live-last': st.lastEvent ? (st.lastEvent.kind + ' · ' + st.lastEvent.user + ' · ' + (st.lastEvent.text || '')) : '—',
-        'live-err': st.lastError || '—'
+        'live-err': st.lastError || '—',
+        'live-collector': st.collector ? (st.collector.running ? '运行中' : (st.collector.configured ? '未运行' : '未配置')) : '未知',
+        'live-collector-err': st.collector && st.collector.lastError ? st.collector.lastError : '—'
       };
       Object.keys(map).forEach(function (id) {
         var node = $(id);
@@ -479,6 +590,9 @@ export const consoleScript = `
       });
       var pill = $('live-pill');
       if (pill) { pill.className = 'pill ' + (st.connected ? 'ok' : ''); }
+      var colPill = $('live-collector-pill');
+      if (colPill) { colPill.className = 'pill ' + (st.collector && st.collector.running ? 'ok' : ''); }
+      renderEvents();
     }).catch(function () {});
   }
 
@@ -492,18 +606,6 @@ export const consoleScript = `
     var maxInput = el('input', { type: 'number', value: String(lc.dedupeMaxPerWindow), min: '1', max: '100' });
     var autoBox = el('input', { type: 'checkbox' });
     autoBox.checked = lc.autoConnect !== false;
-    var autoBox = el('input', { type: 'checkbox' });
-    autoBox.checked = lc.autoConnect !== false;
-    var modeSelect = el('select');
-    [['readonly', '单机模式 · 只读弹幕（不走大模型）'], ['ai', 'AI 模式 · 弹幕交给大模型']].forEach(function (o) {
-      var op = el('option', { value: o[0], text: o[1] });
-      if ((lc.mode || 'readonly') === o[0]) op.selected = true;
-      modeSelect.appendChild(op);
-    });
-    var autoBox = el('input', { type: 'checkbox' });
-    autoBox.checked = lc.autoConnect !== false;
-    var autoBox = el('input', { type: 'checkbox' });
-    autoBox.checked = lc.autoConnect !== false;
     var modeSelect = el('select');
     [['readonly', '单机模式 · 只读弹幕（不走大模型）'], ['ai', 'AI 模式 · 弹幕交给大模型']].forEach(function (o) {
       var op = el('option', { value: o[0], text: o[1] });
@@ -514,7 +616,6 @@ export const consoleScript = `
     var grid = el('div', { class: 'grid wide' });
 
     grid.appendChild(card('抖音弹幕转发', '本地 WS 源；mock:// 为内置模拟源，没有转发器也能试', [
-      liveField('接入模式', modeSelect, '单机模式：弹幕只显示「谁说了什么」，礼物用固定话术感谢，不产生 API 费用'),
       liveField('接入模式', modeSelect, '单机模式：弹幕只显示「谁说了什么」，礼物用固定话术感谢，不产生 API 费用'),
       el('div', { class: 'two' }, [
         liveField('直播间号', roomInput, '填房间号后点「保存并连接」'),
@@ -549,13 +650,22 @@ export const consoleScript = `
     grid.appendChild(card('运行状态', '每 2 秒刷新', [
       el('div', { class: 'rowline' }, [el('span', { text: '连接' }), el('span', { class: 'pill ' + (st.connected ? 'ok' : ''), id: 'live-pill' }, [el('span', { class: 'dot' }), el('span', { id: 'live-dot', text: st.connected ? '已连接' : '未连接' })])]),
       el('div', { class: 'rowline' }, [el('span', { text: '模式' }), el('span', { class: 'badge', id: 'live-mode', text: st.mode === 'ai' ? 'AI 模式' : '单机模式' })]),
-      el('div', { class: 'rowline' }, [el('span', { text: '模式' }), el('span', { class: 'badge', id: 'live-mode', text: st.mode === 'ai' ? 'AI 模式' : '单机模式' })]),
       el('div', { class: 'rowline' }, [el('span', { text: '房间' }), el('span', { class: 'badge', id: 'live-room', text: st.room || '—' })]),
-      el('div', { class: 'rowline' }, [el('span', { text: '收到 / 放行 / 抑制' }), el('span', {}, [
+      el('div', { class: 'rowline' }, [el('span', { text: '收到 / 已播 / 去重抑制' }), el('span', {}, [
         el('span', { id: 'live-recv', text: String(st.received) }), ' / ',
         el('span', { id: 'live-deliv', text: String(st.delivered) }), ' / ',
         el('span', { id: 'live-supp', text: String(st.suppressed) })
       ])]),
+      el('div', { class: 'rowline' }, [el('span', { text: '排队中 / 抽样丢 / 队列满' }), el('span', {}, [
+        el('span', { id: 'live-queued', text: String(st.queued || 0) }), ' / ',
+        el('span', { id: 'live-drop-sampled', text: String(st.droppedSampled || 0) }), ' / ',
+        el('span', { id: 'live-drop-full', text: String(st.droppedQueueFull || 0) })
+      ])]),
+      el('div', { class: 'rowline' }, [el('span', { text: '采集器' }), el('span', { class: 'pill ' + (st.collector && st.collector.running ? 'ok' : ''), id: 'live-collector-pill' }, [
+        el('span', { class: 'dot' }),
+        el('span', { id: 'live-collector', text: st.collector ? (st.collector.running ? '运行中' : (st.collector.configured ? '未运行' : '未配置')) : '未知' })
+      ])]),
+      el('div', { class: 'rowline' }, [el('span', { text: '采集器错误' }), el('span', { class: 'muted', id: 'live-collector-err', text: (st.collector && st.collector.lastError) || '—' })]),
       el('div', { class: 'rowline' }, [el('span', { text: '最近事件' }), el('span', { class: 'muted', id: 'live-last', text: '—' })]),
       el('div', { class: 'rowline' }, [el('span', { text: '最近错误' }), el('span', { class: 'muted', id: 'live-err', text: st.lastError || '—' })])
     ]));
@@ -584,7 +694,92 @@ export const consoleScript = `
       ])
     ]));
 
+    // 排队与抽样：人多时按批抽一半，留下的仍按到达顺序一句一句播；礼物必谢、不参与抽样。
+    var q = {
+      maxPending: lc.maxPending === undefined ? 50 : lc.maxPending,
+      sampleRatio: lc.sampleRatio === undefined ? 0.5 : lc.sampleRatio,
+      flushMs: lc.flushMs === undefined ? 3000 : lc.flushMs,
+      outputGapMs: lc.outputGapMs === undefined ? 2200 : lc.outputGapMs
+    };
+    var qMax = numberInput(q.maxPending, function (v) { q.maxPending = v; }, { min: '1', max: '500' });
+    var qRatio = numberInput(Math.round(q.sampleRatio * 100), function (v) { q.sampleRatio = v / 100; }, { min: '0', max: '100' });
+    var qFlush = numberInput(q.flushMs, function (v) { q.flushMs = v; }, { min: '200', max: '60000' });
+    var qGap = numberInput(q.outputGapMs, function (v) { q.outputGapMs = v; }, { min: '200', max: '60000' });
+
+    grid.appendChild(card('排队与抽样', '弹幕太多时按批抽样，留下的仍按先后顺序一句一句播', [
+      el('div', { class: 'two' }, [
+        liveField('互动最大数', qMax, '也是抽样批量：攒够这么多就抽一次'),
+        liveField('保留比例 %', qRatio, '50 = 50 条里随机留一半')
+      ]),
+      el('div', { class: 'two' }, [
+        liveField('批次最长等待 ms', qFlush, '小房间攒不满也按这个间隔抽一次'),
+        liveField('两句最小间隔 ms', qGap, '实际间隔还会按字数估的语音时长拉长')
+      ]),
+      el('p', { class: 'hint', text: '礼物永远不参与抽样，也不会被丢掉；进场/关注/点赞在单机模式下只记日志、不占播报节奏。' }),
+      el('div', { class: 'row mt-6' }, [
+        el('button', { class: 'btn primary', type: 'button', on: { click: function () {
+          api(API + '/live/config', { method: 'POST', body: {
+            maxPending: num(qMax.value, 50),
+            sampleRatio: num(qRatio.value, 50) / 100,
+            flushMs: num(qFlush.value, 3000),
+            outputGapMs: num(qGap.value, 2200)
+          } }).then(function (cfg) {
+            state.liveCfg = cfg;
+            toast('排队参数已保存');
+            refreshLive();
+          }).catch(function (e) { toast(e.message, true); });
+        } } }, ['保存排队参数']),
+        el('span', { class: 'hint', text: '保存后立即生效，不用重连' })
+      ])
+    ]));
+
+    // 采集器：填了路径就能让宿主在启动时把它一起拉起来，不用再单开一个终端。
+    var colPath = textInput(lc.collectorPath || '', function () {}, { placeholder: '例如 C:\\Users\\你\\.live-pet\\tools\\douyinLive\\douyinLive.exe' });
+    var colAuto = el('input', { type: 'checkbox' });
+    colAuto.checked = lc.collectorAutoStart !== false;
+
+    grid.appendChild(card('弹幕采集器', '填了路径，启动桌宠时会自动把 douyinLive 拉起来', [
+      liveField('采集器可执行文件', colPath, '留空 = 不自动拉起，需要你自己开'),
+      el('label', { class: 'switch mb' }, [colAuto, '启动时自动拉起（端口没在听才拉）']),
+      el('div', { class: 'row mt-6' }, [
+        el('button', { class: 'btn primary', type: 'button', on: { click: function () {
+          api(API + '/live/config', { method: 'POST', body: {
+            collectorPath: colPath.value.trim(),
+            collectorAutoStart: colAuto.checked
+          } }).then(function (cfg) {
+            state.liveCfg = cfg;
+            return api(API + '/live/collector/start', { method: 'POST', body: {} });
+          }).then(function (col) {
+            var ok = col && col.running;
+            toast(ok ? '采集器已在运行' : '采集器未能启动：' + ((col && col.lastError) || '未知原因'), !ok);
+            refreshLive();
+          }).catch(function (e) { toast(e.message, true); });
+        } } }, ['保存并启动']),
+        el('button', { class: 'btn', type: 'button', on: { click: function () {
+          api(API + '/live/collector/start', { method: 'POST', body: {} })
+            .then(function (col) {
+              var ok = col && col.running;
+              toast(ok ? '采集器已在运行' : '采集器未能启动：' + ((col && col.lastError) || '未知原因'), !ok);
+              refreshLive();
+            })
+            .catch(function (e) { toast(e.message, true); });
+        } } }, ['仅启动'])
+      ])
+    ]));
+
     $('view').appendChild(grid);
+
+    // 互动记录：收到的全部互动（含被抽样丢弃的），全宽卡片，放在最下面。
+    $('view').appendChild(el('div', { class: 'card mt' }, [
+      el('div', { class: 'card-head' }, [
+        el('div', {}, [
+          el('h2', { text: '互动记录' }),
+          el('p', { class: 'hint', text: '收到的全部互动，含被抽样刷掉和排队中的；礼物高亮，置灰表示没播出去' })
+        ])
+      ]),
+      el('div', { class: 'evlist', id: 'ev-list' }, [el('div', { class: 'empty', text: '正在读取…' })])
+    ]));
+    renderEvents();
     if (liveTimer) clearInterval(liveTimer);
     liveTimer = setInterval(refreshLive, 2000);
     refreshLive();
@@ -682,12 +877,14 @@ export const consoleScript = `
       api(API + '/config'),
       api('/standalone-ai/settings').catch(function () { return {}; }),
       api(API + '/live/config').catch(function () { return null; }),
-      api(API + '/live/status').catch(function () { return null; })
+      api(API + '/live/status').catch(function () { return null; }),
+      api(API + '/voice/config').catch(function () { return null; })
     ]).then(function (res) {
       state.cfg = res[0];
       state.ai = res[1] || {};
       state.liveCfg = res[2] || null;
       state.liveStatus = res[3] || null;
+      state.voiceCfg = res[4] || null;
       state.draft = makeDraft();
       state.aiDraft = Object.assign({
         protocol: 'openai-compatible', baseUrl: '', model: 'deepseek-chat',

@@ -16,18 +16,12 @@
  */
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
 import { Writable } from 'node:stream';
 
 import { apply } from './index.ts';
-
-/** 包内文件源码（守卫用；相对 src/host/ 解析） */
-const readSource = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
-
-const hostSource = readSource('./index.ts') + '\n' + readSource('./routes/desktop.ts');
 
 type Result = { status: number; body: string };
 

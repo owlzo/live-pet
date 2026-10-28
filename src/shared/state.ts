@@ -117,7 +117,7 @@ export function takeChanged(s: PollState, baseline: Record<string, number>): Sta
 export type SectionLeafName = 'config' | 'balance' | 'workStatus' | 'notify' | 'menu';
 
 /** `pets.<id>.<名>` 里会被消费端分发的那几个叶子。 */
-export type PetLeafName = 'say' | 'anim' | 'position' | 'throw' | 'lock';
+export type PetLeafName = 'say' | 'anim' | 'position' | 'throw' | 'lock' | 'voice';
 
 /** 一次叶子分发的落点：分段叶子，或某只宠物的叶子。 */
 export type LeafTarget =
@@ -127,7 +127,7 @@ export type LeafTarget =
 const SECTION_LEAF_NAMES = ['config', 'balance', 'workStatus', 'notify', 'menu'] as const;
 
 /** 宠物叶子名的全集；新增宠物叶子时与 {@link PetLeafName} 一起改。 */
-const PET_LEAF_NAMES = ['say', 'anim', 'position', 'throw', 'lock'] as const;
+const PET_LEAF_NAMES = ['say', 'anim', 'position', 'throw', 'lock', 'voice'] as const;
 
 /** 把字符串收窄成分段叶子名。 */
 function isSectionLeafName(name: string): name is SectionLeafName {
@@ -206,6 +206,22 @@ export function readSay(leaf: StateLeaf): SayCue | null {
     duration: typeof d.duration === 'number' && Number.isFinite(d.duration) && d.duration >= 0 ? d.duration : undefined,
     anim: typeof d.anim === 'boolean' ? d.anim : undefined,
   };
+}
+
+/** 语音指令（`pets.<id>.voice`）：宿主合成好一段音频后写这个叶子，消费端读到就播。
+ *  与 say 分开是两个理由：合成是异步的（气泡先出、声音后到），且一段语音可以被多次说话复用。
+ *  name 是宿主缓存里的文件名（消费端拼 `<BASE>/voice/<name>` 取回），volume 是 0~1 的播放音量。 */
+export type VoiceCue = { name: string; volume: number };
+
+/** 类型收窄：语音叶子 → VoiceCue（形状非法或文件名为空 → null，消费端跳过这一拍）。 */
+export function readVoice(leaf: StateLeaf): VoiceCue | null {
+  if (!leaf.data || typeof leaf.data !== 'object') return null;
+  const d = leaf.data as { name?: unknown; volume?: unknown };
+  if (typeof d.name !== 'string' || d.name === '') return null;
+  // 音量缺省按 1：宿主没给就照常播，不要因为少一个字段整段静音
+  const volume =
+    typeof d.volume === 'number' && Number.isFinite(d.volume) ? Math.max(0, Math.min(1, d.volume)) : 1;
+  return { name: d.name, volume };
 }
 
 /** 类型收窄：工作状态叶子 → 快照（形状非法 → null，消费端跳过这一拍）。

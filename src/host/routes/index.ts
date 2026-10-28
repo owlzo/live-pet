@@ -19,6 +19,7 @@ import { handleMenuRoutes } from './menu.ts';
 import { handleMotionRoutes } from './motion.ts';
 import { handlePlaybackRoutes } from './playback.ts';
 import { handleStateRoutes } from './state.ts';
+import { handleVoiceRoutes } from './voice.ts';
 import type { PetRouteDeps, RouteHandler } from './types.ts';
 
 /** 处理器顺序：越靠前越先匹配；素材兜底必须在末尾。 */
@@ -33,6 +34,7 @@ const HANDLERS: readonly RouteHandler[] = [
   handlePlaybackRoutes,
   handleChatRoutes,
   handleLiveRoutes,
+  handleVoiceRoutes,
   handleAttachmentRoutes,
   handleAssetsRoutes,
 ];

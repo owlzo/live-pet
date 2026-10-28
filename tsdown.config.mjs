@@ -2,14 +2,10 @@
 //
 //   1) 宿主半侧（index → lib/index.js）—— ESM，供 app 与测试直接 import。
 //   2) 桌面应用（app → lib/app.js）—— 同一个 Electron 进程里跑「本机服务 + 宿主半侧 + 桌面窗口」。
-//      electron 由 Electron 自己的模块加载器提供；zod / openai / @anthropic-ai/sdk 必须打进包，
+//      electron 由 Electron 自己的模块加载器提供；zod / openai / @anthropic-ai/sdk / msedge-tts 必须打进包，
 //      因为 electron-builder 的 files 白名单不带 node_modules，留成裸 import 就会 ERR_MODULE_NOT_FOUND。
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+//      msedge-tts 还带 axios / ws 等传递依赖，一并内联，否则打包版会在语音这一步才炸。
 import { defineConfig } from 'tsdown';
-
-/** 本配置文件所在目录（= 包根） */
-const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)));
 
 /** 两份配置共用的编译口径 */
 const shared = {
@@ -40,7 +36,7 @@ export default defineConfig([
     entry: {
       app: 'src/app/main.ts',
     },
-    noExternal: [/^zod$/, /^openai$/, /^@anthropic-ai\/sdk$/],
+    noExternal: [/^zod$/, /^openai$/, /^@anthropic-ai\/sdk$/, /^msedge-tts$/, /^axios$/, /^ws$/, /^isomorphic-ws$/, /^buffer$/],
     external: ['electron', /^node:/],
   },
 ]);

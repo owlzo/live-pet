@@ -1,8 +1,11 @@
 /**
  * 直播事件 → 宠物动作的映射：弹幕走大模型，礼物/进场/点赞走固定文案与动画。
  *
- * 只做映射与写状态；不建连接、不去重（那两层在 ./index）。
+ * 只做映射与写状态；不建连接、不去重、不排队（那三层在 ./index 与 ./queue）。
  * 必须始终成立：任何失败都只写日志，不抛出——一条弹幕炸掉不能拖垮整条接入链路。
+ *
+ * 返回值的用途：**返回「这次实际念出去的文本」**，队列据此估算这条要念多久，
+ * 从而决定下一条什么时候播（见 ./index 的 pump）。返回 undefined = 这条没出声。
  * @module live-pet/src/live/handlers
  */
 import type { PollStateStore } from '../host/state.ts';
@@ -34,72 +37,79 @@ function play(state: PollStateStore, petId: string, name: string | undefined): v
 }
 
 /** 创建事件处理器（返回的函数直接交给 LiveService 的 onEvent）。 */
-export function createLiveHandler(deps: LiveHandlerDeps): (event: LiveEvent, mode: LiveMode) => Promise<void> {
-  return async (event: LiveEvent, mode: LiveMode): Promise<void> => {
+export function createLiveHandler(
+  deps: LiveHandlerDeps,
+): (event: LiveEvent, mode: LiveMode) => Promise<string | undefined> {
+  return async (event: LiveEvent, mode: LiveMode): Promise<string | undefined> => {
     const petId = deps.petId();
     try {
       switch (event.kind) {
         case 'chat': {
           // 单机模式：只读弹幕——把「谁说了什么」原样显示，不调用任何模型。
           if (mode === 'readonly') {
-            say(deps.state, petId, event.user + '：' + (event.text ?? ''), 6000);
+            const line = event.user + '：' + (event.text ?? '');
+            say(deps.state, petId, line, 6000);
             deps.log.info(`[live-pet] 弹幕（只读）${event.user}：${event.text ?? ''}`);
-            return;
+            return line;
           }
           if (!deps.chatEnabled()) {
             deps.log.info(`[live-pet] 弹幕已收到但未启用 AI：${event.user}：${event.text ?? ''}`);
-            return;
+            return undefined;
           }
           const reply = await deps.chat(petId, event.text ?? '');
           if (reply.ok && reply.text !== undefined && reply.text !== '') {
             say(deps.state, petId, reply.text, 10000);
             deps.log.info(`[live-pet] 弹幕 ${event.user} → 回复：${reply.text}`);
-          } else {
-            deps.log.warn(`[live-pet] 弹幕回复失败 reason=${reply.reason ?? 'unknown'}`);
+            return reply.text;
           }
-          return;
+          deps.log.warn(`[live-pet] 弹幕回复失败 reason=${reply.reason ?? 'unknown'}`);
+          return undefined;
         }
         case 'gift': {
           // 礼物感谢是固定话术，两种模式都走这里（不经过模型，单机模式也能用）。
           const name = event.giftName ?? '礼物';
           const count = event.giftCount ?? 1;
-          say(deps.state, petId, '谢谢 ' + event.user + ' 的 ' + name + (count > 1 ? ' ×' + count : '') + '！', 8000);
+          const line = '谢谢 ' + event.user + ' 的 ' + name + (count > 1 ? ' ×' + count : '') + '！';
+          say(deps.state, petId, line, 8000);
           play(deps.state, petId, deps.pickAnim('clicks'));
           deps.log.info(`[live-pet] 礼物 ${event.user} × ${name}(${count})`);
-          return;
+          return line;
         }
         case 'enter': {
           // 单机模式不欢迎进场：人一多会刷屏，只留日志。
           if (mode === 'readonly') {
             deps.log.info(`[live-pet] 进场（只读）${event.user}`);
-            return;
+            return undefined;
           }
-          say(deps.state, petId, '欢迎 ' + event.user + ' 来到直播间～', 6000);
+          const line = '欢迎 ' + event.user + ' 来到直播间～';
+          say(deps.state, petId, line, 6000);
           play(deps.state, petId, deps.pickAnim('idle'));
           deps.log.info(`[live-pet] 进场 ${event.user}`);
-          return;
+          return line;
         }
         case 'follow': {
           if (mode === 'readonly') {
             deps.log.info(`[live-pet] 关注（只读）${event.user}`);
-            return;
+            return undefined;
           }
-          say(deps.state, petId, '谢谢 ' + event.user + ' 的关注！', 6000);
+          const line = '谢谢 ' + event.user + ' 的关注！';
+          say(deps.state, petId, line, 6000);
           play(deps.state, petId, deps.pickAnim('clicks'));
           deps.log.info(`[live-pet] 关注 ${event.user}`);
-          return;
+          return line;
         }
         case 'like': {
           // 点赞量大且无正文：只播动画，不说话（去重层已压掉同一用户的重复点赞）
           // 单机模式连动画都不播——点赞是最高频事件，会把随机链顶掉。
-          if (mode === 'readonly') return;
+          if (mode === 'readonly') return undefined;
           play(deps.state, petId, deps.pickAnim('idle'));
           deps.log.info(`[live-pet] 点赞 ${event.user}`);
-          return;
+          return undefined;
         }
       }
     } catch (error) {
       deps.log.warn(`[live-pet] 直播事件映射失败：${error instanceof Error ? error.message : String(error)}`);
     }
+    return undefined;
   };
 }

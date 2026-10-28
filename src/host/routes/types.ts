@@ -18,6 +18,7 @@ import type { PoseStore } from '../pose.ts';
 import type { PollStateStore } from '../state.ts';
 import type { WorkStatusStore } from '../work-status.ts';
 import type { LiveService } from '../../live/index.ts';
+import type { VoiceService } from '../voice/index.ts';
 
 /** 一次路由调用的输入：URL 已解析，`rest` 是去掉前缀并解码后的路径。 */
 export interface RouteInput {
@@ -140,4 +141,6 @@ export interface PetRouteDeps {
   readonly assetRootFor: (ext: string) => string;
   /** 直播接入服务（状态 / 配置 / 连接 / 测试事件）。 */
   readonly live: LiveService;
+  /** 宠物语音（状态 / 配置 / 合成 / 缓存取回）。 */
+  readonly voice: VoiceService;
 }

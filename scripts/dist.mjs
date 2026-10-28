@@ -34,7 +34,8 @@ const ELECTRON_REL =
  * @returns 解压目录，或 undefined（交给 electron-builder 下载）。
  */
 function resolveElectronDist() {
-  const dshHome = process.env.DSH_HOME || join(homedir(), '.dsh');
+  // 与 ensure-electron / start-app 同一套落盘目录（LIVE_PET_HOME → DSH_HOME → ~/.live-pet）
+  const dshHome = process.env.LIVE_PET_HOME || process.env.DSH_HOME || join(homedir(), '.live-pet');
   const candidates = [
     process.env.DSH_PET_ELECTRON_DIST,
     process.env.DSH_PET_ELECTRON_PATH ? dirname(process.env.DSH_PET_ELECTRON_PATH) : undefined,

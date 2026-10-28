@@ -12,6 +12,16 @@ logs.txt
 ai-config.json
 live-config.json
 main-config.jsonc
+voice-config.json
+# 语音合成缓存（mp3，会一直增长）
+voice-cache/
+*.part
+
+# 本地装的可执行文件（setup:collector / ensure:electron 下载到用户目录，但别让仓库里漏进来）
+tools/
+
+# Agent 工作区数据（会话记忆、临时产物，不随仓库分发）
+.workbuddy-ai/
 
 # 上游 README 用的预览 GIF（65 MB，不随仓库分发）
 assets/preview/

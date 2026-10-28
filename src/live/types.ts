@@ -46,6 +46,22 @@ export interface LiveStatus {
   delivered: number;
   /** 被去重抑制的事件数。 */
   suppressed: number;
+  /** 待播队列里还剩多少条（一句一句播的积压量）。 */
+  queued: number;
+  /** 抽样批里还没决策的条数。 */
+  batch: number;
+  /** 被抽样刷掉的条数。 */
+  droppedSampled: number;
+  /** 因队列满被挤掉的条数。 */
+  droppedQueueFull: number;
+  /** 采集器状态（是否在跑、路径、pid）。 */
+  collector: {
+    configured: boolean;
+    running: boolean;
+    path: string;
+    pid?: number;
+    lastError?: string;
+  };
   /** 最近一条被放行的事件（控制台展示用）。 */
   lastEvent?: { kind: LiveEventKind; user: string; text?: string; ts: number };
   /** 最近一次错误（连不上 / 解析失败），成功连上后清空。 */

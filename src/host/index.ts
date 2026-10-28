@@ -18,6 +18,7 @@ import { createDownloadReport } from './plugin/download-report.ts';
 import { createWorkStatusBridge } from './plugin/work-status-bridge.ts';
 import { createLiveService } from '../live/index.ts';
 import { createLiveHandler } from '../live/handlers.ts';
+import { createVoiceService } from './voice/index.ts';
 import { readAllConfig } from './config.ts';
 import { join } from 'node:path';
 import type { PetRouteDeps } from './routes/types.ts';
@@ -101,6 +102,27 @@ export function apply(ctx: any): void {
   });
   ctx.effect(() => () => live.dispose(), 'live-pet: live service');
 
+  // 宠物语音：弹幕、碎碎念、对话回复、/broadcast 最终都走 state.writePet(petId,'say',…) 这一个口子，
+  // 在这里拦一刀交给 TTS 合成，气泡照旧立刻出现、声音晚几百毫秒跟上（合成是异步的）。
+  // 只在 say 上触发：anim / position / throw 是动作指令，不念。
+  const voice = createVoiceService({
+    log,
+    userRoot,
+    configPath: join(userRoot, 'voice-config.json'),
+    onClip: (petId, clip) => state.writePet(petId, 'voice', clip),
+  });
+  const writePetRaw = state.writePet.bind(state);
+  state.writePet = (petId, leaf, data) => {
+    writePetRaw(petId, leaf, data);
+    if (leaf !== 'say' || data === null || typeof data !== 'object') return;
+    const say = data as { text?: unknown; duration?: unknown; clear?: unknown };
+    // clear 是「收起气泡」，duration=0 是「只播动画不弹泡」——两种都不出声
+    if (say.clear === true || say.duration === 0) return;
+    if (typeof say.text !== 'string' || say.text.trim() === '') return;
+    voice.publish(petId, say.text);
+  };
+  ctx.effect(() => () => voice.dispose(), 'live-pet: voice service');
+
 
   const desktopHelper = createDesktopHelper({
     ctx,
@@ -124,6 +146,7 @@ export function apply(ctx: any): void {
     // 对话能力由 routes/chat 使用；命令层删除后仍需显式带上，避免依赖表漏项
     chatWithPet,
     live,
+    voice,
     ctx,
   };
   const httpRoute = createHttpRoute(deps);
