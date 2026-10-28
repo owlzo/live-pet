@@ -20,25 +20,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-## Scope note / 适用范围说明
-
-The MIT license above covers **source code only**.
-
-The following assets are **NOT** covered by this license and remain the property
-of their original authors. They are included solely for personal, non-commercial
-evaluation, and must be replaced before any commercial use (including but not
-limited to monetized live streaming):
-
-- `assets/webm/**` — character animations
-- `assets/memes/**` — meme images
-- `assets/fonts/**` — bubble font
-- `assets/pic/**` — cursors, notification icons, logo
-- `assets/preview/**` — preview GIFs (not distributed in this repository)
-
-See [DISCLAIMER.md](DISCLAIMER.md) for details.
-
-上述 MIT 许可仅覆盖**源代码**。`assets/` 下的动画、表情包、字体、图标等素材版权归原作者所有，
-仅限个人非商业评估使用；任何商业场景（含开通打赏的直播）使用前必须替换为自制素材。
