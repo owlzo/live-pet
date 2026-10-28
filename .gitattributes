@@ -1,0 +1,11 @@
+# 统一换行，避免 Windows 上反复出现 CRLF 警告
+* text=auto eol=lf
+
+# 二进制素材：不做换行与文本差异处理
+*.webm binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ttf binary
+*.wav binary
+*.ico binary

@@ -1,0 +1,81 @@
+{
+  "name": "live-pet",
+  "version": "0.1.0",
+  "description": "抖音直播间桌面陪伴宠物：透明置顶小窗、百余段动画链、拖拽甩抛物理、弹幕互动与大模型对话。",
+  "private": true,
+  "icon": "assets/logo.png",
+  "keywords": [
+    "desktop-pet",
+    "douyin",
+    "live",
+    "electron",
+    "floating-widget"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "assets/webm",
+    "runtime/electron-helper",
+    "assets/fonts",
+    "assets/pic",
+    "assets/memes",
+    "assets/sound",
+    "assets/config.jsonc",
+    "assets/logo.png",
+    "scripts/ensure-electron.mjs"
+  ],
+  "scripts": {
+    "bundle": "tsdown",
+    "build:desktop-core": "node scripts/build-desktop-core.mjs",
+    "watch": "tsdown --watch",
+    "ensure:electron": "node scripts/ensure-electron.mjs",
+    "start:app": "node scripts/start-app.mjs",
+    "dist": "node scripts/dist.mjs",
+    "build": "node scripts/prepare.js",
+    "prepack": "npm run build && npm run typecheck",
+    "test": "node --experimental-strip-types --import ./scripts/test-register.mjs --test src/**/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "types": "node scripts/gen-types.mjs",
+    "lint": "eslint .",
+    "check:cycles": "node scripts/check-import-cycles.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check:runtime": "eslint --config eslint.runtime.config.js runtime/electron-helper",
+    "probe:console": "node scripts/probe-console.mjs"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.135.0",
+    "@electron-internal/extract-zip": "^1.0.5",
+    "@electron/get": "^5.1.0",
+    "openai": "7.39.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.2.0",
+    "electron-builder": "^26.15.3",
+    "eslint": "^10.9.0",
+    "eslint-plugin-jsdoc": "^65.4.2",
+    "js-yaml": "^5.4.2",
+    "playwright": "1.63.0",
+    "prettier": "^3.9.6",
+    "rolldown": "1.0.0-beta.7",
+    "tsdown": "^0.8.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.67.0"
+  }
+}
