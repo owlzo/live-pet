@@ -101,5 +101,15 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .ev.gift .txt{color:var(--warn)}
 .ev.dropped{opacity:.55}
 .badge.gift{color:var(--warn);border-color:rgba(240,180,41,.35)}
+/* 点歌队列：一行一条，含排位/点歌人/曲目/判定/操作 */
+.songlist{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
+.songrow{display:grid;grid-template-columns:44px 96px minmax(0,1fr) 76px 60px;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);font-size:12px}
+.songrow:last-child{border-bottom:0}
+.songrow .t{color:var(--muted);font-variant-numeric:tabular-nums}
+.songrow .who{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.songrow .txt{color:var(--muted);word-break:break-all}
+.songrow.review{background:rgba(240,180,41,.08)}
+.btn.sm{padding:4px 10px;font-size:12px;border-radius:7px}
+@media (max-width:900px){.songrow{grid-template-columns:36px 70px minmax(0,1fr) 60px 52px}}
 @media (max-width:900px){.app{grid-template-columns:1fr}.side{flex-direction:row;align-items:center;overflow:auto;border-right:0;border-bottom:1px solid var(--line)}.brand{padding:0 12px 0 4px}.nav{flex-direction:row}.side-foot{display:none}.two,.three{grid-template-columns:1fr}.ev{grid-template-columns:44px 72px minmax(0,1fr) 48px}}
 `;

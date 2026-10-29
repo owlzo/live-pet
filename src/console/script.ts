@@ -14,7 +14,8 @@ export const consoleScript = `
   var token = (location.hash.match(/token=([A-Za-z0-9_-]+)/) || [])[1] || '';
   var state = {
     cfg: null, ai: null, meta: null, tab: 'overview',
-    draft: null, aiDraft: null, dirty: false, petIndex: 0
+    draft: null, aiDraft: null, dirty: false, petIndex: 0,
+    liveCfg: null, liveStatus: null, songCfg: null, song: null
   };
 
   var TABS = [
@@ -22,7 +23,8 @@ export const consoleScript = `
     { id: 'pets', label: '宠物', title: '宠物', sub: '多开、大小、位置与开关' },
     { id: 'look', label: '外观与物理', title: '外观与物理', sub: '拖拽甩抛手感、气泡字体、全局开关' },
     { id: 'ai', label: 'AI 对话', title: 'AI 对话', sub: 'DeepSeek / OpenAI 兼容接口与记忆轮数' },
-    { id: 'live', label: '直播接入', title: '直播接入', sub: '抖音弹幕转发、去重与事件映射' }
+    { id: 'live', label: '直播接入', title: '直播接入', sub: '抖音弹幕转发、去重与事件映射' },
+    { id: 'song', label: '点歌', title: '点歌', sub: '弹幕点歌、队列与版权过滤（默认关闭）' }
   ];
 
   /** 可选的语音音色（与宿主 VOICES 同一份，写死省掉一次联网拉列表）。 */
@@ -785,12 +787,345 @@ export const consoleScript = `
     refreshLive();
   }
 
+  // ===== 点歌 =====
+  var songTimer = 0;
+  var songQueueSig = '';
+  var songHistSig = '';
+
+  function saveSongConfig(patch, message) {
+    api(API + '/song/config', { method: 'POST', body: patch }).then(function (cfg) {
+      state.songCfg = cfg;
+      toast(message || '已保存');
+      refreshSong();
+    }).catch(function (e) { toast(e.message, true); });
+  }
+
+  /** 把 textarea 的每行拆成数组（保存时用）。 */
+  function lines(textarea) {
+    return textarea.value.split('\\n').map(function (s) { return s.trim(); }).filter(function (s) { return s !== ''; });
+  }
+
+  /** 数组拼回 textarea 文本。 */
+  function joinLines(list) {
+    return (list || []).join('\\n');
+  }
+
+  function songQueueRow(item) {
+    var title = item.song ? item.song.title : item.raw;
+    var artist = item.song ? item.song.artist : '';
+    var review = item.verdict === 'review';
+    var btn = el('button', { class: 'btn sm', type: 'button', on: { click: function () {
+      api(API + '/song/remove', { method: 'POST', body: { id: item.id } }).then(function (r) {
+        state.song = r.status;
+        songQueueSig = '';
+        updateSong(r.status);
+        toast('已移除');
+      }).catch(function (e) { toast(e.message, true); });
+    } } }, ['移除']);
+    return el('div', { class: 'songrow' + (review ? ' review' : '') }, [
+      el('span', { class: 't', text: '#' + item.id }),
+      el('span', { class: 'who', text: item.user }),
+      el('span', { class: 'txt', text: title + (artist ? ' · ' + artist : '') }),
+      el('span', { class: 'badge' + (review ? ' gift' : ''), text: review ? '待复核' : '已通过' }),
+      btn
+    ]);
+  }
+
+  function renderSongQueue(st) {
+    var box = $('song-queue');
+    if (!box) return;
+    var items = (st && st.pending) || [];
+    var playing = st && st.playing ? st.playing.id : 0;
+    var sig = items.length + ':' + (items[0] ? items[0].id : 0) + ':' + playing;
+    if (sig === songQueueSig) return;
+    songQueueSig = sig;
+    box.innerHTML = '';
+    if (!items.length) {
+      box.appendChild(el('div', { class: 'empty', text: '队列是空的。观众发「点歌 歌名」就会排进来。' }));
+      return;
+    }
+    items.forEach(function (it) { box.appendChild(songQueueRow(it)); });
+  }
+
+  function renderSongHistory(st) {
+    var box = $('song-history');
+    if (!box) return;
+    var counts = (st && st.counts) || {};
+    var sig = String(counts.played || 0) + ':' + String(counts.failed || 0) + ':' + String(counts.rejected || 0);
+    if (sig === songHistSig) return;
+    songHistSig = sig;
+    box.textContent = '已播 ' + (counts.played || 0) + ' 首 · 失败 ' + (counts.failed || 0) + ' 首 · 拒绝 ' + (counts.rejected || 0) + ' 次';
+  }
+
+  /** 状态刷新：只改 DOM 文本，不重建整页（否则输入框会失焦）。 */
+  function updateSong(st) {
+    if (!st) return;
+    var map = {
+      'song-enabled': st.enabled ? '已开启' : '已关闭',
+      'song-accepting': st.accepting ? '接单中' : '已停单',
+      'song-client': st.client && st.client.running ? '运行中' : '未运行',
+      'song-title': (st.client && st.client.title) || '—',
+      'song-playing': st.playing
+        ? ((st.playing.song ? st.playing.song.title : st.playing.raw) + ' · ' + st.playing.user + ' · ' + st.playing.status)
+        : '—',
+      'song-pending': String((st.pending || []).length),
+      'song-accepted': String((st.counts && st.counts.accepted) || 0),
+      'song-err': st.lastError || '—'
+    };
+    Object.keys(map).forEach(function (id) {
+      var node = $(id);
+      if (node) node.textContent = map[id];
+    });
+    var pill = $('song-pill');
+    if (pill) pill.className = 'pill ' + (st.enabled ? 'ok' : '');
+    var cli = $('song-client-pill');
+    if (cli) cli.className = 'pill ' + (st.client && st.client.running ? 'ok' : 'warn');
+    var acc = $('song-accept-pill');
+    if (acc) acc.className = 'pill ' + (st.accepting ? 'ok' : 'warn');
+    renderSongQueue(st);
+    renderSongHistory(st);
+  }
+
+  function refreshSong() {
+    api(API + '/song/status').then(function (st) {
+      state.song = st;
+      updateSong(st);
+    }).catch(function () {});
+  }
+
+  function renderSong() {
+    if (!state.songCfg) {
+      $('view').appendChild(el('div', { class: 'empty', text: '正在读取点歌配置…' }));
+      api(API + '/song/config').then(function (cfg) {
+        state.songCfg = cfg;
+        if (state.tab === 'song') render();
+      }).catch(function (e) { toast(e.message, true); });
+      return;
+    }
+    var st = state.song || {
+      enabled: false, accepting: true, playing: null, pending: [],
+      counts: { accepted: 0, played: 0, failed: 0, rejected: 0 },
+      client: { running: false, title: '' }
+    };
+    var cfg = state.songCfg || {
+      enabled: false, accepting: true,
+      guard: { mode: 'fail-closed', whitelistSongIds: [], blacklistSongIds: [], blacklistArtists: [], bannedWords: [], rejectOverSec: 600 },
+      queue: { maxPending: 10, perUserCooldownSec: 300, perUserMaxPerHour: 3, duplicateWindowSec: 1800 },
+      playback: { playLimitSec: 240, verifyDelayMs: 3000, pollIntervalMs: 5000, tailMs: 1500 },
+      announce: { enabled: true, delayMs: 2500 },
+      netease: { exePath: '', autoLaunch: false, launchMinimized: true, commandGapMs: 400 }
+    };
+    var grid = el('div', { class: 'grid wide' });
+
+    var enableBox = el('input', { type: 'checkbox' });
+    enableBox.checked = cfg.enabled === true;
+    var acceptBox = el('input', { type: 'checkbox' });
+    acceptBox.checked = cfg.accepting !== false;
+
+    grid.appendChild(card('运行状态', '每 2 秒刷新；开关改动立即生效', [
+      el('div', { class: 'rowline' }, [el('span', { text: '功能' }), el('span', { class: 'pill ' + (st.enabled ? 'ok' : ''), id: 'song-pill' }, [el('span', { class: 'dot' }), el('span', { id: 'song-enabled', text: st.enabled ? '已开启' : '已关闭' })])]),
+      el('div', { class: 'rowline' }, [el('span', { text: '接单' }), el('span', { class: 'pill ' + (st.accepting ? 'ok' : 'warn'), id: 'song-accept-pill' }, [el('span', { class: 'dot' }), el('span', { id: 'song-accepting', text: st.accepting ? '接单中' : '已停单' })])]),
+      el('div', { class: 'rowline' }, [el('span', { text: '网易云客户端' }), el('span', { class: 'pill ' + (st.client && st.client.running ? 'ok' : 'warn'), id: 'song-client-pill' }, [el('span', { class: 'dot' }), el('span', { id: 'song-client', text: st.client && st.client.running ? '运行中' : '未运行' })])]),
+      el('div', { class: 'rowline' }, [el('span', { text: '当前曲目' }), el('span', { class: 'muted', id: 'song-title', text: (st.client && st.client.title) || '—' })]),
+      el('div', { class: 'rowline' }, [el('span', { text: '正在播' }), el('span', { class: 'muted', id: 'song-playing', text: '—' })]),
+      el('div', { class: 'rowline' }, [el('span', { text: '排队 / 累计接收' }), el('span', {}, [el('span', { id: 'song-pending', text: '0' }), ' / ', el('span', { id: 'song-accepted', text: '0' })])]),
+      el('div', { class: 'rowline' }, [el('span', { text: '最近错误' }), el('span', { class: 'muted', id: 'song-err', text: '—' })]),
+      el('label', { class: 'switch mt' }, [enableBox, '启用点歌（观众发「点歌 歌名」）']),
+      el('label', { class: 'switch mb' }, [acceptBox, '接单（取消勾选 = 暂停点歌，不动总开关）']),
+      el('div', { class: 'row mt-6' }, [
+        el('button', { class: 'btn primary', type: 'button', on: { click: function () {
+          saveSongConfig({ enabled: enableBox.checked, accepting: acceptBox.checked }, '设置已保存');
+        } } }, ['保存开关']),
+        el('button', { class: 'btn', type: 'button', on: { click: function () {
+          api(API + '/song/launch', { method: 'POST', body: {} }).then(function (r) {
+            state.song = r.status;
+            updateSong(r.status);
+            toast(r.running ? '客户端已在运行' : '客户端未能启动，请手动打开');
+          }).catch(function (e) { toast(e.message, true); });
+        } } }, ['启动客户端']),
+        el('button', { class: 'btn', type: 'button', on: { click: function () {
+          api(API + '/song/skip', { method: 'POST', body: {} }).then(function (r) {
+            state.song = r.status;
+            songQueueSig = '';
+            updateSong(r.status);
+            toast(r.skipped ? '已切歌' : '当前没有在播的歌');
+          }).catch(function (e) { toast(e.message, true); });
+        } } }, ['跳过当前'])
+      ]),
+      el('p', { class: 'hint mt', text: '版权提示：网易云的「可播放」不等于抖音的「可授权」。默认策略是白名单外一律拒绝，请只加入你确认过授权的曲目。' })
+    ]));
+
+    grid.appendChild(card('点歌队列', '按到达顺序播放；判定为「待复核」的条目会高亮', [
+      el('div', { class: 'songlist', id: 'song-queue' }, [el('div', { class: 'empty', text: '正在读取…' })]),
+      el('div', { class: 'row mt' }, [
+        el('button', { class: 'btn', type: 'button', on: { click: function () {
+          api(API + '/song/clear', { method: 'POST', body: {} }).then(function (r) {
+            state.song = r.status;
+            songQueueSig = '';
+            updateSong(r.status);
+            toast('已清空 ' + r.removed + ' 条');
+          }).catch(function (e) { toast(e.message, true); });
+        } } }, ['清空队列']),
+        el('span', { class: 'hint', text: '正在播的那首不受「清空」影响，需要停下请点「跳过当前」' })
+      ])
+    ]));
+
+    var manualUser = el('input', { type: 'text', value: '主播' });
+    var manualText = el('input', { type: 'text', placeholder: '例如 点歌 蓝莲花' });
+    grid.appendChild(card('手工点歌', '自己加一首，走与弹幕完全相同的搜索与过滤', [
+      el('div', { class: 'two' }, [
+        field('点歌人', manualUser),
+        field('内容', manualText)
+      ]),
+      el('div', { class: 'row' }, [
+        el('button', { class: 'btn primary', type: 'button', on: { click: function () {
+          var text = (manualText.value || '').trim();
+          if (!text) { toast('先填歌名', true); return; }
+          api(API + '/song/queue', { method: 'POST', body: { user: manualUser.value || '主播', text: text } }).then(function (r) {
+            toast(r.message || (r.ok ? '已入队' : '未入队'), !r.ok);
+            manualText.value = '';
+            songQueueSig = '';
+            refreshSong();
+          }).catch(function (e) { toast(e.message, true); });
+        } } }, ['加入队列']),
+        el('span', { class: 'hint', text: '被拒绝时这里会显示原因，和观众听到的一致' })
+      ])
+    ]));
+
+    var modeSelect = el('select');
+    [['fail-closed', '严格：白名单外一律拒绝（推荐）'], ['fail-open', '宽松：白名单外放行，标记待复核']].forEach(function (o) {
+      var op = el('option', { value: o[0], text: o[1] });
+      if ((cfg.guard.mode || 'fail-closed') === o[0]) op.selected = true;
+      modeSelect.appendChild(op);
+    });
+    var whiteIds = el('textarea', { placeholder: '每行一个 songId，例如 168091' });
+    whiteIds.value = joinLines(cfg.guard.whitelistSongIds);
+    var blackIds = el('textarea', { placeholder: '每行一个 songId' });
+    blackIds.value = joinLines(cfg.guard.blacklistSongIds);
+    var blackArtists = el('textarea', { placeholder: '每行一个艺人名，包含即命中' });
+    blackArtists.value = joinLines(cfg.guard.blacklistArtists);
+    var bannedWords = el('textarea', { placeholder: '每行一个词，命中歌名/艺人/检索词即拒' });
+    bannedWords.value = joinLines(cfg.guard.bannedWords);
+    var rejectOver = numberInput(cfg.guard.rejectOverSec, function () {}, { min: '0', max: '7200' });
+
+    grid.appendChild(card('版权与内容过滤', '入队前判定；黑名单优先于白名单', [
+      field('判定模式', modeSelect),
+      el('div', { class: 'two' }, [
+        field('白名单 songId', whiteIds, '平台曲库或已获书面授权的曲目'),
+        field('黑名单 songId', blackIds, '明确不能播的曲目')
+      ]),
+      el('div', { class: 'two' }, [
+        field('艺人黑名单', blackArtists, '如：周杰伦（包含匹配）'),
+        field('敏感词', bannedWords, '涉政/低俗/违禁等，歌名或检索词命中即拒')
+      ]),
+      field('单曲时长硬上限（秒，0 = 不限）', rejectOver, '整场录音、DJ 串烧在这里挡掉'),
+      el('div', { class: 'row mt-6' }, [
+        el('button', { class: 'btn primary', type: 'button', on: { click: function () {
+          saveSongConfig({
+            guard: {
+              mode: modeSelect.value,
+              whitelistSongIds: lines(whiteIds),
+              blacklistSongIds: lines(blackIds),
+              blacklistArtists: lines(blackArtists),
+              bannedWords: lines(bannedWords),
+              rejectOverSec: num(rejectOver.value, 600)
+            }
+          }, '过滤规则已保存');
+        } } }, ['保存过滤规则']),
+        el('span', { class: 'hint', text: '保存后立即生效；排队中的条目会在投递前再校验一次' })
+      ])
+    ]));
+
+    var maxPending = numberInput(cfg.queue.maxPending, function () {}, { min: '1', max: '100' });
+    var cooldown = numberInput(cfg.queue.perUserCooldownSec, function () {}, { min: '0', max: '3600' });
+    var maxPerHour = numberInput(cfg.queue.perUserMaxPerHour, function () {}, { min: '1', max: '60' });
+    var dupWindow = numberInput(cfg.queue.duplicateWindowSec, function () {}, { min: '0', max: '21600' });
+    var gapMs = numberInput(cfg.netease.commandGapMs, function () {}, { min: '100', max: '5000' });
+    var autoLaunch = el('input', { type: 'checkbox' });
+    autoLaunch.checked = cfg.netease.autoLaunch === true;
+
+    grid.appendChild(card('排队与防刷', '人少也要防连点，人多更要防刷歌', [
+      el('div', { class: 'two' }, [
+        field('待播上限', maxPending),
+        field('同曲去重窗口（秒）', dupWindow)
+      ]),
+      el('div', { class: 'two' }, [
+        field('每人冷却（秒）', cooldown),
+        field('每人每小时上限', maxPerHour)
+      ]),
+      el('div', { class: 'two' }, [
+        field('两次投递最小间隔（毫秒）', gapMs, '太快客户端可能丢命令'),
+        field('启动时预热客户端', el('label', { class: 'switch' }, [autoLaunch, '自动拉起（不投歌）']))
+      ]),
+      el('div', { class: 'row mt-6' }, [
+        el('button', { class: 'btn primary', type: 'button', on: { click: function () {
+          saveSongConfig({
+            queue: {
+              maxPending: num(maxPending.value, 10),
+              perUserCooldownSec: num(cooldown.value, 300),
+              perUserMaxPerHour: num(maxPerHour.value, 3),
+              duplicateWindowSec: num(dupWindow.value, 1800)
+            },
+            netease: {
+              commandGapMs: num(gapMs.value, 400),
+              autoLaunch: autoLaunch.checked
+            }
+          }, '排队参数已保存');
+        } } }, ['保存排队参数'])
+      ])
+    ]));
+
+    var playLimit = numberInput(cfg.playback.playLimitSec, function () {}, { min: '0', max: '3600' });
+    var verifyDelay = numberInput(cfg.playback.verifyDelayMs, function () {}, { min: '200', max: '15000' });
+    var pollInterval = numberInput(cfg.playback.pollIntervalMs, function () {}, { min: '200', max: '30000' });
+    var announceOn = el('input', { type: 'checkbox' });
+    announceOn.checked = cfg.announce.enabled !== false;
+    var announceDelay = numberInput(cfg.announce.delayMs, function () {}, { min: '0', max: '15000' });
+
+    grid.appendChild(card('播放与播报', '客户端不回执，只能靠「时长 + 窗口标题」两边对', [
+      el('div', { class: 'two' }, [
+        field('单曲最长播放（秒，0 = 整首）', playLimit, '到点强制切歌，降低整首播放的暴露面'),
+        field('播报与投歌间隔（毫秒）', announceDelay, '先念完再起歌，避免两条音频叠在一起')
+      ]),
+      el('div', { class: 'two' }, [
+        field('投递后确认延迟（毫秒）', verifyDelay),
+        field('轮询标题间隔（毫秒）', pollInterval)
+      ]),
+      el('label', { class: 'switch mb' }, [announceOn, '让桌宠报幕（「接下来播放…」）']),
+      el('div', { class: 'row mt-6' }, [
+        el('button', { class: 'btn primary', type: 'button', on: { click: function () {
+          saveSongConfig({
+            playback: {
+              playLimitSec: num(playLimit.value, 240),
+              verifyDelayMs: num(verifyDelay.value, 3000),
+              pollIntervalMs: num(pollInterval.value, 5000),
+              tailMs: cfg.playback.tailMs
+            },
+            announce: { enabled: announceOn.checked, delayMs: num(announceDelay.value, 2500) }
+          }, '播放参数已保存');
+        } } }, ['保存播放参数']),
+        el('span', { class: 'hint', text: '版权受限、未登录、id 失效都表现为「客户端没反应」，靠确认延迟兜住' })
+      ])
+    ]));
+
+    grid.appendChild(card('统计', '只算本次运行，重启归零', [
+      el('div', { class: 'rowline' }, [el('span', { text: '累计' }), el('span', { class: 'muted', id: 'song-history', text: '—' })]),
+      el('p', { class: 'hint', text: '被拒绝的请求不会进队列，也不会消耗他人的排队位置。' })
+    ]));
+
+    $('view').appendChild(grid);
+    refreshSong();
+    if (songTimer) clearInterval(songTimer);
+    songTimer = setInterval(refreshSong, 2000);
+  }
+
   function render() {
     var tab = TABS.filter(function (t) { return t.id === state.tab; })[0] || TABS[0];
     $('title').textContent = tab.title;
     $('subtitle').textContent = tab.sub;
     $('view').innerHTML = '';
     if (liveTimer) { clearInterval(liveTimer); liveTimer = 0; }
+    if (songTimer) { clearInterval(songTimer); songTimer = 0; }
     renderNav();
     renderActions();
     if (!state.cfg) return;
@@ -799,6 +1134,7 @@ export const consoleScript = `
     else if (state.tab === 'look') renderLook();
     else if (state.tab === 'ai') renderAi();
     else if (state.tab === 'live') renderLive();
+    else if (state.tab === 'song') renderSong();
   }
 
   function configBody() {
