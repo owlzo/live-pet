@@ -902,6 +902,10 @@ export const consoleScript = `
       }).catch(function (e) { toast(e.message, true); });
       return;
     }
+    // 每次重建页签都要把签名清掉：否则切走再切回来，DOM 是新的、签名还是旧的，
+    // 列表会一直停在「正在读取…」。
+    songQueueSig = '';
+    songHistSig = '';
     var st = state.song || {
       enabled: false, accepting: true, playing: null, pending: [],
       counts: { accepted: 0, played: 0, failed: 0, rejected: 0 },
