@@ -13,6 +13,7 @@ ai-config.json
 live-config.json
 main-config.jsonc
 voice-config.json
+song-config.json
 # 语音合成缓存（mp3，会一直增长）
 voice-cache/
 *.part
