@@ -315,7 +315,7 @@ orpheus://<base64({"type":"song","id":"168091","cmd":"play","channel":"webset"})
 
 ```bash
 npm run typecheck        # tsc --noEmit
-npm test                 # node:test（1254 项）
+npm test                 # node:test（1255 项）
 npm run lint             # eslint（含 runtime 的独立配置）
 npm run probe:console    # 控制台冒烟探针（需 LIVE_PET_ELECTRON_PATH）
 npm run clean:types      # 清 lib/types（构建偶发卡在 gen-types 时先跑它）
