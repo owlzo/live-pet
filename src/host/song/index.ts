@@ -422,7 +422,9 @@ export function createSongService(deps: SongDeps): SongService {
     },
 
     async request(input: { user: string; text: string; keyword?: string }): Promise<SongRequestOutcome> {
-      const keyword = (input.keyword ?? input.text).trim();
+      // 控制台手工点歌传的是「点歌 蓝莲花」这种整句：没显式给 keyword 时先按指令解析一遍，
+      // 否则会把「点歌」两个字一起拿去搜，搜出来的首条往往不是观众要的那首。
+      const keyword = (input.keyword ?? parseSongCommand(input.text)?.keyword ?? input.text).trim();
       if (!config.enabled) return reject('disabled', keyword);
       if (!config.accepting) return reject('paused', keyword);
 

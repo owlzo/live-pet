@@ -25,7 +25,14 @@ function candidate(over: Partial<SongCandidate> = {}): SongCandidate {
 /** 假适配器：所有外部副作用都收在这里，便于断言「投了几次、投给了谁」。 */
 function makeFake(): {
   adapter: NeteaseAdapter;
-  state: { running: boolean; title: string; played: string[]; autoTitle: boolean; candidates: SongCandidate[] };
+  state: {
+    running: boolean;
+    title: string;
+    played: string[];
+    autoTitle: boolean;
+    candidates: SongCandidate[];
+    searched: string[];
+  };
 } {
   const state = {
     running: true,
@@ -33,9 +40,11 @@ function makeFake(): {
     played: [] as string[],
     autoTitle: true,
     candidates: [candidate()],
+    searched: [] as string[],
   };
   const adapter: NeteaseAdapter = {
-    async search(): Promise<SongCandidate[]> {
+    async search(keyword: string): Promise<SongCandidate[]> {
+      state.searched.push(keyword);
       return state.candidates;
     },
     async play(songId: string): Promise<void> {
@@ -239,6 +248,16 @@ test('防刷：同一用户 3 秒内第二次尝试直接冷却', async () => {
     const again = await song.request({ user: '小明', text: '点歌 另一首' });
     assert.equal(again.ok, false);
     assert.equal(again.reason, 'cooldown');
+  } finally {
+    cleanup();
+  }
+});
+
+test('手工点歌传整句时先解析：搜索词里不该带「点歌」两个字', async () => {
+  const { song, state, cleanup } = makeService();
+  try {
+    await song.request({ user: '主播', text: '点歌 蓝莲花' });
+    assert.deepEqual(state.searched, ['蓝莲花'], '整句要先解析成检索词');
   } finally {
     cleanup();
   }
