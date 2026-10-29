@@ -107,7 +107,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .songrow:last-child{border-bottom:0}
 .songrow .t{color:var(--muted);font-variant-numeric:tabular-nums}
 .songrow .who{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.songrow .txt{color:var(--muted);word-break:break-all}
+/* 歌名可能很长（含「现场版」这类后缀）：单行截断，别让它换行把行高撑成两行 */
+.songrow .txt{color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .songrow.review{background:rgba(240,180,41,.08)}
 .btn.sm{padding:4px 10px;font-size:12px;border-radius:7px}
 @media (max-width:900px){.songrow{grid-template-columns:36px 70px minmax(0,1fr) 60px 52px}}
