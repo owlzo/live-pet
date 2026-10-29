@@ -19,6 +19,7 @@ import { createWorkStatusBridge } from './plugin/work-status-bridge.ts';
 import { createLiveService } from '../live/index.ts';
 import { createLiveHandler } from '../live/handlers.ts';
 import { createVoiceService } from './voice/index.ts';
+import { createSongService } from './song/index.ts';
 import { readAllConfig } from './config.ts';
 import { join } from 'node:path';
 import type { PetRouteDeps } from './routes/types.ts';
@@ -67,6 +68,26 @@ export function apply(ctx: any): void {
   const balancePoll = createBalancePoll({ ctx, configPaths, getActivePetId, log, state });
   const { effectivePetList, balancePeriodSec, whisperPeriodSec, refreshBalance } = balancePoll;
 
+  // 当前目标宠物：单机模式没有 /pet 命令设置「当前宠物」，空串会写进没人消费的 pets['']，
+  // 这里退回到第一只生效宠物，保证气泡一定落在看得见的那只身上。
+  const currentPetId = (): string => {
+    const list = effectivePetList();
+    const active = getActivePetId();
+    // 当前选中的宠物可能已被删除（控制台删宠物不会清 activePetId）：必须校验它还在列表里，
+    // 否则事件会写进一个渲染端不认识的 id，气泡静默丢失。
+    if (active !== '' && list.some((pet) => String(pet.id) === active)) return active;
+    return String(list[0]?.id ?? 'main');
+  };
+
+  // 点歌：解析与守卫在 src/live/song 与 ./song，播放交给外部网易云客户端。
+  // 播报复用 say 叶子（与弹幕、碎碎念同一条通道），因此会被上面的 voice 拦截一层念出来。
+  const song = createSongService({
+    log,
+    configPath: join(userRoot, 'song-config.json'),
+    announce: (text) => state.writePet(currentPetId(), 'say', { text, duration: 8000, anim: true }),
+  });
+  ctx.effect(() => () => song.dispose(), 'live-pet: song service');
+
   // 直播接入：连本地 WS 转发器 → 归一化 → 去重 → 动作映射。
   // AI 未启用时弹幕只记日志、不弹气泡（避免每条都报「没配模型」）。
   const live = createLiveService({
@@ -75,16 +96,8 @@ export function apply(ctx: any): void {
     onEvent: createLiveHandler({
       log,
       state,
-      // 单机模式没有 /pet 命令设置「当前宠物」：空串会写进没人消费的 pets['']，
-      // 这里退回到第一只生效宠物，保证气泡一定落在看得见的那只身上。
-      petId: () => {
-        const list = effectivePetList();
-        const active = getActivePetId();
-        // 当前选中的宠物可能已被删除（控制台删宠物不会清 activePetId）：必须校验它还在列表里，
-        // 否则事件会写进一个渲染端不认识的 id，气泡静默丢失。
-        if (active !== '' && list.some((pet) => String(pet.id) === active)) return active;
-        return String(list[0]?.id ?? 'main');
-      },
+      petId: currentPetId,
+      song: (user, text) => song.handleChat(user, text),
       pickAnim: (pool) => {
         try {
           const cfg = readAllConfig(configPaths);
@@ -147,6 +160,7 @@ export function apply(ctx: any): void {
     chatWithPet,
     live,
     voice,
+    song,
     ctx,
   };
   const httpRoute = createHttpRoute(deps);

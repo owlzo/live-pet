@@ -18,6 +18,7 @@ import { handleLiveRoutes } from './live.ts';
 import { handleMenuRoutes } from './menu.ts';
 import { handleMotionRoutes } from './motion.ts';
 import { handlePlaybackRoutes } from './playback.ts';
+import { handleSongRoutes } from './song.ts';
 import { handleStateRoutes } from './state.ts';
 import { handleVoiceRoutes } from './voice.ts';
 import type { PetRouteDeps, RouteHandler } from './types.ts';
@@ -35,6 +36,7 @@ const HANDLERS: readonly RouteHandler[] = [
   handleChatRoutes,
   handleLiveRoutes,
   handleVoiceRoutes,
+  handleSongRoutes,
   handleAttachmentRoutes,
   handleAssetsRoutes,
 ];

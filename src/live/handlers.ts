@@ -24,6 +24,13 @@ export interface LiveHandlerDeps {
   chat: (petId: string, text: string) => Promise<{ ok: boolean; text?: string; reason?: string }>;
   /** 弹幕是否走大模型（AI 未启用时关掉，避免每条都报错）。 */
   chatEnabled: () => boolean;
+  /**
+   * 点歌入口（可选）：命中点歌指令时返回「要播报的那句话」，否则 undefined。
+   *
+   * 必须排在 readonly 回显与模型调用之前——否则单机模式会把指令当成普通弹幕念出来，
+   * AI 模式会拿指令去问模型。返回值同时决定队列给这一条排多长的播报间隔。
+   */
+  song?: (user: string, text: string) => Promise<string | undefined> | string | undefined;
 }
 
 /** 说一句话（与 /broadcast 写同一个叶子，渲染端无需区分来源）。 */
@@ -45,6 +52,16 @@ export function createLiveHandler(
     try {
       switch (event.kind) {
         case 'chat': {
+          // 点歌指令先过一道：它属于「命令」而不是「聊天」，两种模式都不该走回显或模型。
+          // 未命中时返回 undefined，下面照旧走原来的两条分支。
+          if (deps.song !== undefined) {
+            const handled = await deps.song(event.user, event.text ?? '');
+            if (handled !== undefined && handled !== '') {
+              say(deps.state, petId, handled, 6000);
+              deps.log.info(`[live-pet] 点歌指令 ${event.user}：${event.text ?? ''} → ${handled}`);
+              return handled;
+            }
+          }
           // 单机模式：只读弹幕——把「谁说了什么」原样显示，不调用任何模型。
           if (mode === 'readonly') {
             const line = event.user + '：' + (event.text ?? '');
