@@ -263,6 +263,30 @@ test('手工点歌传整句时先解析：搜索词里不该带「点歌」两�
   }
 });
 
+test('客户端不可用：先失败一次并整体退避，不把队列烧光', async () => {
+  const { song, state, clock, cleanup } = makeService();
+  try {
+    state.running = false; // 探测为 false，launch 也返回 false
+    await song.request({ user: '小明', text: '点歌 蓝莲花' });
+    await song.tick(); // 开始这一首
+    await song.tick(); // 确保客户端 → 失败 → 判 no-client
+
+    assert.equal(song.status().counts.failed, 1);
+    assert.equal(song.status().playing, null);
+
+    state.candidates = [candidate({ id: '2', title: '起风了' })];
+    await song.request({ user: '小红', text: '点歌 起风了' });
+    assert.equal(song.status().pending.length, 1);
+
+    clock.t += 1000;
+    await song.tick(); // 退避中：不该取歌
+    assert.equal(song.status().pending.length, 1, '退避期内队列不动');
+    assert.equal(state.played.length, 0, '一次都不该投递');
+  } finally {
+    cleanup();
+  }
+});
+
 test('标题匹配：归一化后包含即算命中，空标题永远不命中', () => {
   assert.equal(titleMatchesSong('蓝莲花 - 许巍', candidate()), true);
   assert.equal(titleMatchesSong('  蓝莲花(Live) - 许巍', candidate()), true);

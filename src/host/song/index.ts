@@ -91,6 +91,9 @@ const ATTEMPT_GAP_MS = 3000;
 /** 播放失败后的同曲冷却：避免同一首被反复点、反复失败。 */
 const FAILED_SONG_COOLDOWN_MS = 24 * 3600_000;
 
+/** 客户端不可用时的整体退避：别让队列在播放器挂掉时被一口气烧光。 */
+const NO_CLIENT_BACKOFF_MS = 30_000;
+
 /** 数值收敛。 */
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
   const n = Number(value);
@@ -212,6 +215,8 @@ export function createSongService(deps: SongDeps): SongService {
   const lastAttempt = new Map<string, number>();
   /** 播放失败过的曲目 → 冷却截止时刻。 */
   const failedSongs = new Map<string, number>();
+  /** 客户端不可用时的退避截止时刻：到点之前不再从队列取歌。 */
+  let backoffUntil = 0;
   const counts = { accepted: 0, played: 0, failed: 0, rejected: 0 };
 
   const persist = (): void => {
@@ -240,6 +245,9 @@ export function createSongService(deps: SongDeps): SongService {
     } else {
       counts.failed += 1;
       if (current.song !== undefined) failedSongs.set(current.song.id, now() + FAILED_SONG_COOLDOWN_MS);
+      // 播放器不可用是「环境问题」而不是「这首歌的问题」：整体退避一会儿，
+      // 否则队列会在客户端挂掉时被一口气全部判失败。
+      if (reason === 'no-client') backoffUntil = now() + NO_CLIENT_BACKOFF_MS;
       say(`《${current.song?.title ?? '这首歌'}》放不了，跳过`);
     }
     current = undefined;
@@ -282,7 +290,9 @@ export function createSongService(deps: SongDeps): SongService {
   /** 开始下一首：先报幕，隔 delayMs 再投递。 */
   const startNext = (): void => {
     if (current !== undefined || disposed) return;
-    if (!config.accepting) return;
+    if (!config.enabled || !config.accepting) return;
+    // 客户端刚被判不可用：先退避，别把整条队列都烧在「播放器没开」上
+    if (now() < backoffUntil) return;
     const item = queue.take(now());
     if (item === undefined) return;
     current = item;
