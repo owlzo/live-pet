@@ -261,6 +261,19 @@ export function createSongService(deps: SongDeps): SongService {
       settle('failed', 'play-failed');
       return;
     }
+    // 投递前二次复核：排队期间主播可能刚把这首歌拉黑（或刚切到严格模式），
+    // 入队时放行不代表现在还能放。
+    const recheck = judgeSong({
+      candidate: item.song,
+      keyword: parseSongCommand(item.raw)?.keyword ?? item.raw,
+      config: config.guard,
+    });
+    if (recheck.verdict === 'block') {
+      log.info(`[live-pet] 投递前复核拦截 #${item.id}：${recheck.note}`);
+      say(`《${item.song.title}》刚被列为不可播，跳过`);
+      settle('failed', recheck.reason ?? 'unverified');
+      return;
+    }
     const gap = config.netease.commandGapMs;
     const wait = Math.max(0, lastDispatchAt + gap - now());
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));

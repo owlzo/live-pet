@@ -938,6 +938,12 @@ export const consoleScript = `
       el('label', { class: 'switch mb' }, [acceptBox, '接单（取消勾选 = 暂停点歌，不动总开关）']),
       el('div', { class: 'row mt-6' }, [
         el('button', { class: 'btn primary', type: 'button', on: { click: function () {
+          // 首次开启必须过一道确认：这是唯一会「让直播间响起第三方音乐」的开关，
+          // 不能点一下就默认用户已经想清楚了版权问题。
+          if (enableBox.checked && cfg.enabled !== true) {
+            var agreed = window.confirm('开启后，点歌会把第三方音乐播放到直播间。\\n\\n平台只对自有授权曲库提供许可，网易云能播放不等于抖音有授权。\\n请确认你已获得相应授权，并自行承担版权与平台合规责任。');
+            if (!agreed) return;
+          }
           saveSongConfig({ enabled: enableBox.checked, accepting: acceptBox.checked }, '设置已保存');
         } } }, ['保存开关']),
         el('button', { class: 'btn', type: 'button', on: { click: function () {

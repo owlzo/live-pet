@@ -263,6 +263,26 @@ test('手工点歌传整句时先解析：搜索词里不该带「点歌」两�
   }
 });
 
+test('投递前二次复核：排队期间被拉黑就不放了', async () => {
+  const { song, state, said, cleanup } = makeService();
+  try {
+    await song.request({ user: '小明', text: '点歌 蓝莲花' }); // fail-open 放行入队
+    assert.equal(song.status().pending.length, 1);
+
+    // 排队期间主播把这首加进黑名单，并切到严格模式
+    song.updateConfig({ guard: { ...DEFAULT_SONG_CONFIG.guard, mode: 'fail-closed', blacklistSongIds: ['168091'] } });
+
+    await song.tick(); // 开始（报幕）
+    await song.tick(); // 投递前复核 → 拦下，不投递
+
+    assert.deepEqual(state.played, [], '一次都不该投递给客户端');
+    assert.equal(song.status().counts.failed, 1);
+    assert.ok(said.some((text) => text.includes('不可播')), '要告诉观众为什么跳过');
+  } finally {
+    cleanup();
+  }
+});
+
 test('客户端不可用：先失败一次并整体退避，不把队列烧光', async () => {
   const { song, state, clock, cleanup } = makeService();
   try {
